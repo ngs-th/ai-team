@@ -2,6 +2,13 @@
 
 Skills define *how* tools work. This file is for *your* specifics — the stuff that's unique to your setup.
 
+## ⚠️ Formatting Rules
+
+### Tables = ENGLISH ONLY
+- ภาษาไทยมีสระและวรรณยุกต์ทำให้ column spacing เพี้ยน
+- ใช้ภาษาอังกฤษในตารางเสมอ ถึงจะคุยเป็นภาษาไทย
+- ถ้าต้องแสดงข้อมูลไทย → ใช้ bullet list แทน
+
 ## What Goes Here
 
 Things like:
