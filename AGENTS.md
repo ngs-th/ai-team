@@ -186,6 +186,12 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
+## 📂 Obsidian Vault Rules
+
+When working in `~/Library/CloudStorage/OneDrive-Personal/obsidian-vault/`:
+- **Read** `CLAUDE.md` in that folder for project-specific rules
+- Key rules also copied to `TOOLS.md` for quick reference
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.

@@ -68,4 +68,47 @@ Skills are shared. Your setup is yours. Keeping them apart means you can update 
 
 ---
 
+## 📄 NGS Document System
+
+เมื่อทำงานเกี่ยวกับเอกสาร NGS (ใบเสนอราคา/ใบแจ้งหนี้/ใบเสร็จ) **ต้องอ่าน SOP ก่อนเสมอ**
+
+**SOP Index:** `/Users/ngs/Library/CloudStorage/OneDrive-Personal/obsidian-vault/Scripts/ngs-doc-export/SOP-INDEX.md`
+
+| งาน | SOP |
+|-----|-----|
+| สร้าง QT/IV/RC | SOP-Create-Documents.md |
+| สรุปค้างจ่าย | SOP-Outstanding-Invoices.md |
+| บิล CSTP Email | SOP-CSTP-Billing.md |
+| ใบสำคัญจ่าย | SOP-Payment-Voucher.md |
+
+**Database:** `Scripts/ngs-doc-export/ngs_finance.db`
+
+---
+
+## 🛋️ Moomsabaii (มุมสบาย)
+
+เมื่อทำงานเกี่ยวกับมุมสบาย **ต้องอ่าน SOP ก่อน**
+
+**SOP Location:** `/Users/ngs/Library/CloudStorage/OneDrive-Personal/obsidian-vault/Scripts/moomsabaii/`
+
+| งาน | SOP |
+|-----|-----|
+| Sync ข้อมูลจาก Google Sheet | SOP-GSheet-to-SQLite.md |
+
+**Database:** `Scripts/moomsabaii/moomsabaii.db`
+
+---
+
+## 📋 Kanban Boards
+
+| Board | Location | ใช้สำหรับ |
+|-------|----------|----------|
+| NGS | `2-Areas/NGS/ngs_kanban.md` | งาน NGS, การเงิน, ลูกค้า |
+| Moomsabaii | `2-Areas/Moomsabaii/moomsabaii_kanban.md` | งานมุมสบาย |
+| System Ops | `2-Areas/system_ops_kanban.md` | งาน Clawdbot, Infrastructure |
+
+**Base Path:** `/Users/ngs/Library/CloudStorage/OneDrive-Personal/obsidian-vault/`
+
+---
+
 Add whatever helps you do your job. This is your cheat sheet.
