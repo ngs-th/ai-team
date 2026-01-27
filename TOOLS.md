@@ -9,6 +9,34 @@ Skills define *how* tools work. This file is for *your* specifics — the stuff 
 - ใช้ภาษาอังกฤษในตารางเสมอ ถึงจะคุยเป็นภาษาไทย
 - ถ้าต้องแสดงข้อมูลไทย → ใช้ bullet list แทน
 
+## 🔧 OneDrive Lock Fix
+
+When files in OneDrive show "Resource deadlock avoided":
+
+```bash
+# Open the parent folder in Finder to trigger sync
+open "/Users/ngs/Library/CloudStorage/OneDrive-Personal/obsidian-vault/2-Areas/"
+
+# Wait 3-5 seconds, then retry reading the file
+sleep 5 && cat <file_path>
+```
+
+If still locked:
+```bash
+# Restart OneDrive
+killall OneDrive
+sleep 2
+open -a OneDrive
+sleep 10
+# Then open folder in Finder again
+```
+
+**Auto-fix:** When encountering "Resource deadlock avoided" on any OneDrive file, immediately run:
+```bash
+open "$(dirname '<locked_file_path>')"
+```
+Then wait 5 seconds and retry.
+
 ## What Goes Here
 
 Things like:
