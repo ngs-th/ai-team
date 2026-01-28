@@ -14,28 +14,40 @@ Skills define *how* tools work. This file is for *your* specifics — the stuff 
 When files in OneDrive show "Resource deadlock avoided":
 
 ```bash
-# Open the parent folder in Finder to trigger sync
+# Method 1: Open the parent folder in Finder (SAFEST)
+# This triggers OneDrive sync without killing the process
 open "/Users/ngs/Library/CloudStorage/OneDrive-Personal/obsidian-vault/2-Areas/"
 
 # Wait 3-5 seconds, then retry reading the file
 sleep 5 && cat <file_path>
 ```
 
-If still locked:
+**⚠️ WARNING: DO NOT use killall in automated scripts**
+- `killall OneDrive` may cause the service to crash and require manual restart
+- Only use killall as LAST RESORT when manually troubleshooting
+
+### For Heartbeat/Automated Scripts (Safe Mode)
+
 ```bash
-# Restart OneDrive
-killall OneDrive
-sleep 2
-open -a OneDrive
-sleep 10
-# Then open folder in Finder again
+# Safe auto-fix - only open folder, never kill process
+open "$(dirname '<locked_file_path>')"
+sleep 5
+# Then retry the operation
 ```
 
-**Auto-fix:** When encountering "Resource deadlock avoided" on any OneDrive file, immediately run:
+### Manual Recovery (if OneDrive actually crashed)
+
+If OneDrive is not responding at all:
 ```bash
-open "$(dirname '<locked_file_path>')"
+# Check if OneDrive is running
+pgrep -x OneDrive
+
+# Only restart if NOT running
+if ! pgrep -x OneDrive > /dev/null; then
+    open -a OneDrive
+    sleep 15  # Give more time to start
+fi
 ```
-Then wait 5 seconds and retry.
 
 ## What Goes Here
 
