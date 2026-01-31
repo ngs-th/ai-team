@@ -18,6 +18,8 @@ Don't ask permission. Just do it.
 
 ## Memory
 
+**🔄 Auto-Save Rule:** บันทึก `memory/YYYY-MM-DD.md` ทันทีเมื่อ—สร้าง/แก้ไข SOP, คำนวณข้อมูลสำคัญ, แก้ไข Database/Sheets หลายรอบ, หรือผู้ใช้บอกให้ "จำ" / ถ้างานสำคัญให้ถามก่อนปิด Session
+
 You wake up fresh each session. These files are your continuity:
 - **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
 - **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
