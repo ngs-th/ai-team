@@ -4,8 +4,8 @@
  * No frameworks, no external libraries - Pure PHP + SQLite3
  */
 
-// Database path (relative to memory/team/)
-$dbPath = __DIR__ . '/../../memory/team/team.db';
+// Database path (same directory)
+$dbPath = __DIR__ . '/team.db';
 
 // Initialize SQLite3 connection
 $db = null;

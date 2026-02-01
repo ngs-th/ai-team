@@ -4,10 +4,17 @@ AI Team monitoring dashboard - Pure PHP + SQLite3 implementation.
 
 ## Location
 
-This project has been reorganized:
+All files in one place:
 
-- **Code:** `~/clawd/projects/ai-team/` (this directory)
-- **Data:** `~/clawd/memory/team/team.db`
+```
+~/clawd/projects/ai-team/
+├── dashboard.php      # Web dashboard
+├── team_db.py         # CLI tool
+├── team.db            # SQLite database (git-lfs tracked)
+├── docs/
+│   └── AI-TEAM.md     # Full documentation
+└── README.md          # This file
+```
 
 ## Files
 
@@ -15,7 +22,8 @@ This project has been reorganized:
 |------|-------------|
 | `dashboard.php` | Main dashboard (pure PHP, single file) |
 | `team_db.py` | CLI tool for database management |
-| `README.md` | This file |
+| `team.db` | SQLite database (tracked with git-lfs) |
+| `docs/AI-TEAM.md` | Full system documentation |
 
 ## Quick Start
 
@@ -46,7 +54,7 @@ python3 team_db.py --help
 
 ## Database
 
-Location: `~/clawd/memory/team/team.db`
+Location: Same directory (`team.db`)
 
 Tables:
 - `agents` - Team members
@@ -59,6 +67,19 @@ Views:
 - `v_project_status` - Project progress
 - `v_task_summary` - Task summaries
 - `v_agent_workload` - Agent workload info
+
+## Git LFS
+
+Database is tracked with git-lfs:
+
+```bash
+# Install git-lfs (one time)
+brew install git-lfs
+git lfs install
+
+# Pull LFS files
+git lfs pull
+```
 
 ## No Dependencies
 
