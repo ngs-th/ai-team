@@ -11,20 +11,36 @@ TASK_DESC=$2
 WORKSPACE="${HOME}/clawd"
 
 if [ -z "$AGENT_TYPE" ] || [ -z "$TASK_DESC" ]; then
-    echo "Usage: ./spawn-agent.sh <planning|coding|review> <task-description>"
+    echo "Usage: ./spawn-agent.sh <agent-type> <task-description>"
+    echo ""
+    echo "Available agents:"
+    echo "  pm          - Product Manager (John)"
+    echo "  analyst     - Business Analyst (Mary)"
+    echo "  architect   - System Architect (Winston)"
+    echo "  dev         - Developer (Amelia)"
+    echo "  ux-designer - UX Designer (Sally)"
+    echo "  scrum-master- Scrum Master (Bob)"
+    echo "  qa          - QA Engineer (Quinn)"
+    echo "  tech-writer - Technical Writer (Tom)"
+    echo "  solo-dev    - Solo Developer (Barry)"
     echo ""
     echo "Examples:"
-    echo "  ./spawn-agent.sh planning 'Analyze new feature requirements'"
-    echo "  ./spawn-agent.sh coding 'Implement user authentication'"
-    echo "  ./spawn-agent.sh review 'Review PR #123'"
+    echo "  ./spawn-agent.sh pm 'Define product roadmap Q1'"
+    echo "  ./spawn-agent.sh dev 'Implement user authentication'"
+    echo "  ./spawn-agent.sh qa 'Test payment flow'"
     exit 1
 fi
 
 # Validate agent type
-if [[ ! "$AGENT_TYPE" =~ ^(planning|coding|review)$ ]]; then
-    echo "Error: Invalid agent type. Use: planning, coding, or review"
-    exit 1
-fi
+case $AGENT_TYPE in
+    pm|analyst|architect|dev|ux-designer|scrum-master|qa|tech-writer|solo-dev)
+        ;;
+    *)
+        echo "Error: Invalid agent type: $AGENT_TYPE"
+        echo "Use: pm, analyst, architect, dev, ux-designer, scrum-master, qa, tech-writer, or solo-dev"
+        exit 1
+        ;;
+esac
 
 echo "🚀 Spawning ${AGENT_TYPE} agent..."
 echo "   Task: ${TASK_DESC}"
@@ -32,20 +48,50 @@ echo ""
 
 # Build agent-specific configuration
 case $AGENT_TYPE in
-    planning)
-        AGENT_FILE="${WORKSPACE}/agents/planning-agent.md"
+    pm)
+        AGENT_FILE="${WORKSPACE}/agents/pm.md"
         MODEL="anthropic/claude-opus-4-5"
-        LABEL="planning-$(date +%s)"
+        LABEL="pm-$(date +%s)"
         ;;
-    coding)
-        AGENT_FILE="${WORKSPACE}/agents/coding-agent.md"
-        MODEL="kimi-code/kimi-for-coding"
-        LABEL="coding-$(date +%s)"
-        ;;
-    review)
-        AGENT_FILE="${WORKSPACE}/agents/review-agent.md"
+    analyst)
+        AGENT_FILE="${WORKSPACE}/agents/analyst.md"
         MODEL="anthropic/claude-sonnet-4-5"
-        LABEL="review-$(date +%s)"
+        LABEL="analyst-$(date +%s)"
+        ;;
+    architect)
+        AGENT_FILE="${WORKSPACE}/agents/architect.md"
+        MODEL="anthropic/claude-opus-4-5"
+        LABEL="architect-$(date +%s)"
+        ;;
+    dev)
+        AGENT_FILE="${WORKSPACE}/agents/dev.md"
+        MODEL="kimi-code/kimi-for-coding"
+        LABEL="dev-$(date +%s)"
+        ;;
+    ux-designer)
+        AGENT_FILE="${WORKSPACE}/agents/ux-designer.md"
+        MODEL="anthropic/claude-sonnet-4-5"
+        LABEL="ux-$(date +%s)"
+        ;;
+    scrum-master)
+        AGENT_FILE="${WORKSPACE}/agents/scrum-master.md"
+        MODEL="anthropic/claude-sonnet-4-5"
+        LABEL="sm-$(date +%s)"
+        ;;
+    qa)
+        AGENT_FILE="${WORKSPACE}/agents/qa-engineer.md"
+        MODEL="anthropic/claude-sonnet-4-5"
+        LABEL="qa-$(date +%s)"
+        ;;
+    tech-writer)
+        AGENT_FILE="${WORKSPACE}/agents/tech-writer.md"
+        MODEL="anthropic/claude-sonnet-4-5"
+        LABEL="writer-$(date +%s)"
+        ;;
+    solo-dev)
+        AGENT_FILE="${WORKSPACE}/agents/solo-dev.md"
+        MODEL="kimi-code/kimi-for-coding"
+        LABEL="solo-$(date +%s)"
         ;;
 esac
 
@@ -63,11 +109,11 @@ TASK="
 
 ### Context
 Read your agent configuration at: ${AGENT_FILE}
-Follow the Sengdao2 patterns defined there.
+Follow the patterns defined there.
 
 ### Deliverables
 1. Complete the assigned task
-2. Save progress to memory/planning/, memory/coding/, or memory/review/
+2. Save progress to memory/agents/${AGENT_TYPE}/
 3. Report back to main session with:
    - Status (done/blocked)
    - Output location
