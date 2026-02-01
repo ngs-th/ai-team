@@ -194,6 +194,27 @@ When working in `~/Library/CloudStorage/OneDrive-Personal/obsidian-vault/`:
 - **Read** `CLAUDE.md` in that folder for project-specific rules
 - Key rules also copied to `TOOLS.md` for quick reference
 
+## 🌐 Communication Rules
+
+### Language Policy
+- **สื่อสารกับผู้ใช้:** ภาษาไทยเท่านั้น (Thai only for user communication)
+- **ข้อมูลใน code blocks:** ภาษาอังกฤษเท่านั้น (English only in code blocks)
+  - ตารางข้อมูล (tables)
+  - รายงานการเงิน (financial reports)
+  - รายการ Database (database records)
+  - ข้อมูลที่ส่งออก (exported data)
+
+**Example:**
+```
+สวัสดีครับ นี่คือรายการที่เหลือ:
+
+| PR Number | Description | Amount | Status |
+|-----------|-------------|--------|--------|
+| NGSPR0001 | Salary Jan 2026 | 50,000 | Pending |
+
+รายการทั้งหมดมีดังนี้ครับ
+```
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
