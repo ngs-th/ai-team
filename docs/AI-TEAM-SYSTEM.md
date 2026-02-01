@@ -214,8 +214,8 @@ User    Orchestrator  Solo Dev  Done   User
 | Shared context | `team-context.md` | Current session context |
 
 **Location:** `~/clawd/memory/team/team.db`  
-**CLI Tool:** `~/clawd/memory/team/team_db.py`  
-**Dashboard:** `~/clawd/memory/team/dashboard.html` (port 5000)
+**CLI Tool:** `~/clawd/projects/ai-team/team_db.py`  
+**Dashboard:** `~/clawd/projects/ai-team/dashboard.php`
 
 ---
 
@@ -410,7 +410,7 @@ Created (via Orchestrator/PM)
 ### 5.5 CLI Usage
 
 ```bash
-cd ~/clawd/memory/team
+cd ~/clawd/projects/ai-team
 
 # Task Management
 python3 team_db.py task create "Implement login" --assign amelia --priority high --due 2026-02-05
@@ -630,14 +630,25 @@ QA Quinn: Done - ผ่านการทดสอบทั้งหมด
 
 ## 🔗 Related Files
 
+### Code (Projects)
+| File | Purpose |
+|------|---------|
+| `~/clawd/projects/ai-team/dashboard.php` | Web dashboard (PHP) |
+| `~/clawd/projects/ai-team/team_db.py` | CLI management tool |
+| `~/clawd/projects/ai-team/README.md` | Project documentation |
+
+### Data (Memory)
 | File | Purpose |
 |------|---------|
 | `~/clawd/memory/team/team.db` | Central database |
-| `~/clawd/memory/team/team_db.py` | CLI management tool |
-| `~/clawd/memory/team/dashboard.html` | Web dashboard |
-| `~/clawd/agents/*.md` | Individual agent configs |
+| `~/clawd/memory/team/messages.db` | Alert/message history |
 | `~/clawd/memory/team/TASK-BOARD.md` | Kanban board view |
 | `~/clawd/memory/team/PROJECT-STATUS.md` | Project status view |
+
+### Agent Configs
+| File | Purpose |
+|------|---------|
+| `~/clawd/agents/*.md` | Individual agent configurations |
 
 ---
 

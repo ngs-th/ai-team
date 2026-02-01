@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
 
-DB_PATH = Path(__file__).parent / "team.db"
+DB_PATH = Path(__file__).parent / ".." / ".." / "memory" / "team" / "team.db"
 
 class AITeamDB:
     def __init__(self, db_path: Path = DB_PATH):
