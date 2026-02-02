@@ -49,10 +49,19 @@ function fetchOne($db, $sql) {
 $stats = fetchOne($db, 'SELECT * FROM v_dashboard_stats');
 $agents = fetchAll($db, '
     SELECT 
-        a.*,
+        a.id,
+        a.name,
+        a.role,
+        a.status,
+        a.current_task_id,
+        a.total_tasks_completed,
+        a.total_tasks_assigned,
+        a.last_heartbeat,
         a.health_status,
+        (SELECT COUNT(*) FROM tasks WHERE assignee_id = a.id AND status IN ("todo", "in_progress", "review")) as active_tasks,
+        (SELECT COUNT(*) FROM tasks WHERE assignee_id = a.id AND status = "in_progress") as in_progress_tasks,
         ROUND((strftime("%s", "now") - strftime("%s", a.last_heartbeat)) / 60.0, 1) as minutes_since_heartbeat
-    FROM v_agent_workload a
+    FROM agents a
     ORDER BY a.name
 ');
 $projects = fetchAll($db, 'SELECT * FROM v_project_status ORDER BY name');
