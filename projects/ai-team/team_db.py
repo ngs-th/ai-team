@@ -4,6 +4,7 @@ AI Team Database Manager
 Manage tasks, agents, and projects for the AI Team
 """
 
+import os
 import sqlite3
 import json
 import argparse
@@ -11,6 +12,9 @@ import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
+
+# Set timezone to Bangkok (+7)
+os.environ['TZ'] = 'Asia/Bangkok'
 
 DB_PATH = Path(__file__).parent / "team.db"
 TELEGRAM_CHANNEL = "1268858185"

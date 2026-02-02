@@ -4,6 +4,9 @@
  * No frameworks, no external libraries - Pure PHP + SQLite3
  */
 
+// Set timezone to Bangkok (+7)
+date_default_timezone_set('Asia/Bangkok');
+
 // Database path (same directory)
 $dbPath = __DIR__ . '/team.db';
 
@@ -907,17 +910,18 @@ $statConfig = [
             
             title.textContent = `#${task.id}: ${task.title}`;
             
-            // Format date helper
+            // Format date helper (Bangkok +7 timezone)
             const formatDate = (dateStr) => {
                 if (!dateStr) return null;
                 const date = new Date(dateStr);
                 return date.toLocaleString('th-TH', {
+                    timeZone: 'Asia/Bangkok',
                     year: 'numeric',
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit'
-                });
+                }) + ' (GMT+7)';
             };
             
             body.innerHTML = `
