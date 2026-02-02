@@ -435,9 +435,34 @@ if not project_id:
     raise ValueError("project_id is required - every task must belong to a project")
 ```
 
-#### Rule 2: Task ID Format
-- Format: `T-YYYYMMDD-NNN`
-- Example: `T-20260202-001`
+#### Rule 2: Task ID Format (MANDATORY)
+
+**Format:** `T-YYYYMMDD-NNN`
+
+| Component | Description | Example |
+|-----------|-------------|---------|
+| `T` | Task prefix | T |
+| `YYYYMMDD` | Date (4-digit year, 2-digit month, 2-digit day) | 20260202 |
+| `NNN` | Sequence number (3 digits, leading zeros) | 001, 012, 123 |
+
+**Valid Examples:**
+- ✅ `T-20260202-001` (Jan 1st task)
+- ✅ `T-20260202-012` (12th task of the day)
+- ✅ `T-20260202-123` (123rd task of the day)
+
+**Invalid Examples:**
+- ❌ `T-20260202-1` (missing leading zeros)
+- ❌ `T-20260202-01` (only 2 digits)
+- ❌ `T-20260202-24` (missing leading zero)
+- ❌ `Task-001` (wrong prefix)
+- ❌ `20260202-001` (missing T prefix)
+
+**Enforcement:**
+```python
+# In team_db.py - auto-generated with :03d format
+task_id = f"T-{datetime.now().strftime('%Y%m%d')}-{self._get_next_task_number():03d}"
+# Result: T-20260202-001 (always 3 digits)
+```
 
 ---
 
