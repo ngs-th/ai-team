@@ -9,9 +9,13 @@ import sqlite3
 import json
 import argparse
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
+
+# Import health monitor
+from health_monitor import HealthMonitor
 
 # Set timezone to Bangkok (+7)
 os.environ['TZ'] = 'Asia/Bangkok'
@@ -585,6 +589,13 @@ def main():
     report_parser = subparsers.add_parser('report', help='Generate reports')
     report_parser.add_argument('--daily', action='store_true', help='Daily report')
     
+    # Health commands
+    health_parser = subparsers.add_parser('health', help='Health monitoring')
+    health_sub = health_parser.add_subparsers(dest='health_action')
+    
+    health_check = health_sub.add_parser('check', help='Run health check once')
+    health_status = health_sub.add_parser('status', help='Show current health status')
+    
     args = parser.parse_args()
     
     with AITeamDB() as db:
@@ -683,6 +694,22 @@ def main():
             if args.daily:
                 report = db.generate_daily_report()
                 print(report)
+                
+        elif args.command == 'health':
+            # Health commands use their own context manager
+            db.close()
+            with HealthMonitor() as monitor:
+                if args.health_action == 'check':
+                    result = monitor.run_health_check()
+                    # Exit with error code if critical issues found
+                    if result['critical_count'] > 0:
+                        sys.exit(1)
+                elif args.health_action == 'status':
+                    monitor.print_health_status()
+                else:
+                    # Default: show status
+                    monitor.print_health_status()
+            return  # Already closed db
         else:
             parser.print_help()
 
