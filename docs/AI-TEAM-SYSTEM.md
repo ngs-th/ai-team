@@ -954,6 +954,101 @@ Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
 | `~/clawd/memory/team/TASK-BOARD.md` | Kanban board view |
 | `~/clawd/memory/team/PROJECT-STATUS.md` | Project status view |
 
+---
+
+## 12. Agent Memory System (Context & Learning)
+
+ระบบความจำของ Agents แบบ persistent - เก็บ context และ learnings ใน database
+
+### 12.1 Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Agent Memory System                 │
+├─────────────────────────────────────────────────────┤
+│  agent_context table                                │
+│  ├── agent_id      : รหัส agent                     │
+│  ├── context       : บทบาทและความเชี่ยวชาญ        │
+│  ├── learnings     : สิ่งที่เรียนรู้จากงาน         │
+│  ├── preferences   : การตั้งค่าส่วนตัว              │
+│  └── last_updated  : เวลาอัพเดตล่าสุด               │
+└─────────────────────────────────────────────────────┘
+```
+
+### 12.2 How It Works
+
+#### Memory Flow
+```
+1. Auto-Assign หา Agent ที่ว่าง
+        ↓
+2. อ่าน Context ของ Agent จาก database
+        ↓
+3. ส่ง Context + Task Details ให้ Subagent
+        ↓
+4. Subagent ใช้ Context เป็น "ความจำ" เริ่มต้น
+        ↓
+5. เมื่อทำงานเสร็จ → อัพเดต Learnings
+```
+
+#### Memory Maintenance (ทุกชั่วโมง)
+```
+memory_maintenance.py รัน:
+├── Reset stale agents (>1h ไม่มี heartbeat)
+├── Update learnings จาก completed tasks
+└── Archive old history (>30 วัน)
+```
+
+### 12.3 CLI Commands
+
+```bash
+# ดู context ของ agent
+python3 team_db.py agent context show <agent_id>
+
+# อัพเดต context
+python3 team_db.py agent context update <agent_id> \
+  --field context --content "# Role\nExpert in..."
+
+# เพิ่ม learning
+python3 team_db.py agent context learn <agent_id> \
+  "Learned: Always use transactions"
+```
+
+### 12.4 Context Example
+
+**Agent: Amelia (Developer)**
+```markdown
+# Developer Amelia
+
+## Role
+Full-stack developer สำหรับ Nurse AI Project
+
+## Expertise
+- Laravel/PHP
+- Livewire components
+- Tailwind CSS
+- SQLite/MySQL
+
+## Recent Learnings
+- Completed: User authentication system
+- Completed: Database migration tools
+- Learned: Always validate inputs before DB operations
+```
+
+### 12.5 Benefits
+
+| Feature | Benefit |
+|---------|---------|
+| **Persistent Context** | Agent จำบทบาทตัวเองได้ |
+| **Learning Accumulation** | เก็บบทเรียนจากงานก่อน ๆ |
+| **Auto-Cleanup** | ล้างข้อมูลเก่าอัตโนมัติ |
+| **Stale Detection** | รีเซ็ต agents ที่ค้าง |
+
+---
+
+## 13. Cron Monitoring System
+
+ระบบ Cron สำหรับติดตามสถานะ AI Team อัตโนมัติ แจ้งเตือนผ่าน Telegram
+
 ### Agent Configs
 | File | Purpose |
 |------|---------|
@@ -965,15 +1060,17 @@ Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
 
 ระบบ Cron สำหรับติดตามสถานะ AI Team อัตโนมัติ แจ้งเตือนผ่าน Telegram
 
-### 11.1 Active Cron Jobs
+### 13.1 Active Cron Jobs
 
-| Job Name | Schedule | Purpose | Action |
-|----------|----------|---------|--------|
-| **ai-team-heartbeat** | ทุก 5 นาที | ตรวจสอบ Agent เงียบ | Check agent heartbeats |
-| **ai-team-deadlines** | ทุก 30 นาที | ตรวจสอบ deadline | Check task deadlines |
-| **ai-team-hourly-report** | ทุกชั่วโมง (0 * * * *) | สรุปสถานะรายชั่วโมง | Generate hourly report |
-| **ai-team-daily-morning** | 08:00 ทุกวัน | รายงานเช้า | Daily morning report |
-| **ai-team-daily-evening** | 18:00 ทุกวัน | สรุปผลงานเย็น | Daily evening summary |
+| Job Name | Schedule | Purpose |
+|----------|----------|---------|
+| **ai-team-heartbeat** | ทุก 5 นาที | ตรวจสอบ Agent เงียบ/ค้าง |
+| **ai-team-auto-assign** | ทุก 10 นาที | Auto-assign งานให้ agents |
+| **ai-team-memory-maint** | ทุกชั่วโมง | อัพเดต learnings + reset stale |
+| **ai-team-deadlines** | ทุก 30 นาที | ตรวจสอบ deadline |
+| **ai-team-hourly-report** | ทุกชั่วโมง | สรุปสถานะรายชั่วโมง |
+| **ai-team-daily-morning** | 08:00 ทุกวัน | รายงานเช้า |
+| **ai-team-daily-evening** | 18:00 ทุกวัน | สรุปผลงานเย็น |
 
 ### 11.2 Monitoring Rules
 
