@@ -128,12 +128,28 @@ class AITeamDB:
         """Mark task as completed"""
         cursor = self.conn.cursor()
         
+        # Calculate actual duration if started_at exists
         cursor.execute('''
-            UPDATE tasks 
-            SET status = 'done', progress = 100, completed_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            SELECT started_at FROM tasks WHERE id = ?
         ''', (task_id,))
+        row = cursor.fetchone()
+        
+        if row and row[0]:
+            # Calculate duration in minutes
+            cursor.execute('''
+                UPDATE tasks 
+                SET status = 'done', progress = 100, completed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP,
+                    actual_duration_minutes = ROUND((strftime('%s', 'now') - strftime('%s', started_at)) / 60)
+                WHERE id = ?
+            ''', (task_id,))
+        else:
+            cursor.execute('''
+                UPDATE tasks 
+                SET status = 'done', progress = 100, completed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (task_id,))
         
         # Update agent stats
         cursor.execute('''
@@ -290,6 +306,45 @@ class AITeamDB:
         return report
     
     # ========== Helper Methods ==========
+    
+    @staticmethod
+    def format_duration(minutes: int) -> str:
+        """Format duration in human-readable format (e.g., '2h 30m', '45m', '1d 2h')"""
+        if minutes is None or minutes < 0:
+            return "-"
+        
+        days = minutes // 1440
+        hours = (minutes % 1440) // 60
+        mins = minutes % 60
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0:
+            parts.append(f"{hours}h")
+        if mins > 0 or (days == 0 and hours == 0):
+            parts.append(f"{mins}m")
+        
+        return " ".join(parts) if parts else "0m"
+    
+    def get_task_duration(self, task_id: str) -> dict:
+        """Get task duration info"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT started_at, completed_at, actual_duration_minutes
+            FROM tasks WHERE id = ?
+        ''', (task_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return {
+            'started_at': row[0],
+            'completed_at': row[1],
+            'actual_duration_minutes': row[2],
+            'duration_formatted': self.format_duration(row[2])
+        }
     
     def _get_next_task_number(self) -> int:
         """Get next task number for today"""

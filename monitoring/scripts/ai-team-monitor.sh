@@ -1,13 +1,14 @@
 #!/bin/bash
 #
-# 🤖 AI Team Monitor Script
+# 🤖 AI Team Monitor Script (SQLite Version)
 # Monitors agent heartbeats, deadlines, and generates reports
+# Updated: 2026-02-02 - Now uses SQLite instead of JSON files
 #
 
 set -e
 
 # Configuration
-MEMORY_DIR="${HOME}/clawd/memory/team"
+DB_PATH="${HOME}/clawd/projects/ai-team/team.db"
 ALERT_THRESHOLD_MINUTES=30
 DATE_FORMAT="+%Y-%m-%d %H:%M:%S"
 
@@ -18,21 +19,21 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Ensure directory exists
-mkdir -p "$MEMORY_DIR"
-
 # Helper functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 
-get_current_timestamp() { date +%s; }
-format_timestamp() { date -r "$1" "$DATE_FORMAT" 2>/dev/null || date -d "@$1" "$DATE_FORMAT"; }
+# Check if sqlite3 is available
+if ! command -v sqlite3 &> /dev/null; then
+    log_error "sqlite3 is required but not installed."
+    exit 1
+fi
 
-# Check if jq is available
-if ! command -v jq &> /dev/null; then
-    log_error "jq is required but not installed. Install with: brew install jq"
+# Check if database exists
+if [[ ! -f "$DB_PATH" ]]; then
+    log_error "Database not found: $DB_PATH"
     exit 1
 fi
 
@@ -42,35 +43,24 @@ fi
 check_heartbeats() {
     log_info "Checking agent heartbeats..."
     
-    local agent_status_file="$MEMORY_DIR/agent-status.json"
-    local current_time=$(get_current_timestamp)
+    local current_time=$(date +%s)
     local alert_threshold=$((ALERT_THRESHOLD_MINUTES * 60))
     local silent_agents=()
     
-    if [[ ! -f "$agent_status_file" ]]; then
-        log_warn "Agent status file not found: $agent_status_file"
-        return 1
-    fi
+    # Query active agents and their last heartbeat
+    local query="SELECT id, name, last_heartbeat, 
+        (strftime('%s', 'now') - strftime('%s', last_heartbeat)) as seconds_since
+        FROM agents 
+        WHERE status='active'"
     
-    # Check each agent
-    while IFS= read -r agent; do
-        local agent_id=$(echo "$agent" | jq -r '.id')
-        local agent_name=$(echo "$agent" | jq -r '.name')
-        local last_heartbeat=$(echo "$agent" | jq -r '.last_heartbeat // empty')
-        local status=$(echo "$agent" | jq -r '.status')
-        
-        if [[ "$status" == "active" && -n "$last_heartbeat" ]]; then
-            local heartbeat_ts=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${last_heartbeat%%+*}" +%s 2>/dev/null || \
-                                date -d "$last_heartbeat" +%s 2>/dev/null || \
-                                echo "0")
-            local time_diff=$((current_time - heartbeat_ts))
-            
-            if [[ $time_diff -gt $alert_threshold ]]; then
-                local minutes=$((time_diff / 60))
+    while IFS='|' read -r agent_id agent_name last_heartbeat seconds_since; do
+        if [[ -n "$seconds_since" && "$seconds_since" =~ ^[0-9]+$ ]]; then
+            if [[ $seconds_since -gt $alert_threshold ]]; then
+                local minutes=$((seconds_since / 60))
                 silent_agents+=("⚠️ $agent_name ($agent_id): Silent for ${minutes}m")
             fi
         fi
-    done < <(jq -c '.agents[]' "$agent_status_file" 2>/dev/null || echo "")
+    done < <(sqlite3 "$DB_PATH" "$query" 2>/dev/null || echo "")
     
     if [[ ${#silent_agents[@]} -eq 0 ]]; then
         log_success "All active agents reporting normally"
@@ -90,33 +80,35 @@ check_heartbeats() {
 check_deadlines() {
     log_info "Checking task deadlines..."
     
-    local tasks_file="$MEMORY_DIR/active-tasks.json"
-    local current_time=$(get_current_timestamp)
     local overdue_tasks=()
     
-    if [[ ! -f "$tasks_file" ]]; then
-        log_warn "Tasks file not found: $tasks_file"
-        return 1
-    fi
+    # Query tasks with upcoming or past due dates
+    local query="SELECT t.id, t.title, t.due_date, a.name as assignee,
+        (strftime('%s', t.due_date) - strftime('%s', 'now')) as seconds_until
+        FROM tasks t
+        LEFT JOIN agents a ON t.assignee_id = a.id
+        WHERE t.status IN ('todo', 'in_progress')
+        AND t.due_date IS NOT NULL
+        ORDER BY t.due_date ASC"
     
-    while IFS= read -r task; do
-        local task_id=$(echo "$task" | jq -r '.id')
-        local task_title=$(echo "$task" | jq -r '.title')
-        local eta=$(echo "$task" | jq -r '.eta // empty')
-        local status=$(echo "$task" | jq -r '.status')
-        local assignee=$(echo "$task" | jq -r '.assignee')
-        
-        if [[ "$status" == "in_progress" && -n "$eta" ]]; then
-            local eta_ts=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${eta%%+*}" +%s 2>/dev/null || \
-                          date -d "$eta" +%s 2>/dev/null || \
-                          echo "0")
-            
-            if [[ $current_time -gt $eta_ts ]]; then
-                local overdue_min=$(((current_time - eta_ts) / 60))
-                overdue_tasks+=("⏰ $task_id: $task_title ($assignee) - Overdue by ${overdue_min}m")
+    while IFS='|' read -r task_id task_title due_date assignee seconds_until; do
+        if [[ -n "$seconds_until" && "$seconds_until" =~ ^-?[0-9]+$ ]]; then
+            if [[ $seconds_until -lt 0 ]]; then
+                # Overdue
+                local overdue_min=$(( -seconds_until / 60 ))
+                local overdue_hours=$((overdue_min / 60))
+                if [[ $overdue_hours -gt 0 ]]; then
+                    overdue_tasks+=("⏰ $task_id: $task_title ($assignee) - Overdue by ${overdue_hours}h")
+                else
+                    overdue_tasks+=("⏰ $task_id: $task_title ($assignee) - Overdue by ${overdue_min}m")
+                fi
+            elif [[ $seconds_until -lt 86400 ]]; then
+                # Due within 24 hours
+                local hours_until=$((seconds_until / 3600))
+                log_warn "Due soon: $task_id ($hours_until hours remaining)"
             fi
         fi
-    done < <(jq -c '.tasks[]' "$tasks_file" 2>/dev/null || echo "")
+    done < <(sqlite3 "$DB_PATH" "$query" 2>/dev/null || echo "")
     
     if [[ ${#overdue_tasks[@]} -eq 0 ]]; then
         log_success "All tasks on track"
@@ -136,25 +128,29 @@ check_deadlines() {
 check_blocked() {
     log_info "Checking blocked tasks..."
     
-    local tasks_file="$MEMORY_DIR/active-tasks.json"
     local blocked_tasks=()
     
-    if [[ ! -f "$tasks_file" ]]; then
-        log_warn "Tasks file not found: $tasks_file"
-        return 1
-    fi
+    # Query blocked tasks
+    local query="SELECT t.id, t.title, t.blocked_by, a.name as assignee
+        FROM tasks t
+        LEFT JOIN agents a ON t.assignee_id = a.id
+        WHERE t.status = 'blocked'"
     
-    while IFS= read -r task; do
-        local task_id=$(echo "$task" | jq -r '.id')
-        local task_title=$(echo "$task" | jq -r '.title')
-        local status=$(echo "$task" | jq -r '.status')
-        local blocked_by=$(echo "$task" | jq -r '.blocked_by // empty')
-        local assignee=$(echo "$task" | jq -r '.assignee')
-        
-        if [[ "$status" == "blocked" || -n "$blocked_by" ]]; then
-            blocked_tasks+=("🚧 $task_id: $task_title ($assignee) - Blocked by: $blocked_by")
+    while IFS='|' read -r task_id task_title blocked_by assignee; do
+        blocked_tasks+=("🚧 $task_id: $task_title ($assignee) - Blocked by: ${blocked_by:-unknown}")
+    done < <(sqlite3 "$DB_PATH" "$query" 2>/dev/null || echo "")
+    
+    # Also check tasks with blocked_by set but status not blocked
+    local query2="SELECT t.id, t.title, t.blocked_by, a.name as assignee, t.status
+        FROM tasks t
+        LEFT JOIN agents a ON t.assignee_id = a.id
+        WHERE t.blocked_by IS NOT NULL AND t.blocked_by != ''"
+    
+    while IFS='|' read -r task_id task_title blocked_by assignee status; do
+        if [[ "$status" != "blocked" ]]; then
+            blocked_tasks+=("⚠️ $task_id: $task_title ($assignee) - Has blocker but status='$status': $blocked_by")
         fi
-    done < <(jq -c '.tasks[]' "$tasks_file" 2>/dev/null || echo "")
+    done < <(sqlite3 "$DB_PATH" "$query2" 2>/dev/null || echo "")
     
     if [[ ${#blocked_tasks[@]} -eq 0 ]]; then
         log_success "No blocked tasks"
@@ -174,16 +170,19 @@ check_blocked() {
 generate_hourly_report() {
     log_info "Generating hourly report..."
     
-    local tasks_file="$MEMORY_DIR/active-tasks.json"
-    local agent_file="$MEMORY_DIR/agent-status.json"
+    # Query dashboard stats
+    local stats=$(sqlite3 "$DB_PATH" "SELECT * FROM v_dashboard_stats" 2>/dev/null || echo "")
     
-    local total_tasks=$(jq '.tasks | length' "$tasks_file" 2>/dev/null || echo "0")
-    local in_progress=$(jq '[.tasks[] | select(.status == "in_progress")] | length' "$tasks_file" 2>/dev/null || echo "0")
-    local done=$(jq '[.tasks[] | select(.status == "done")] | length' "$tasks_file" 2>/dev/null || echo "0")
-    local blocked=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$tasks_file" 2>/dev/null || echo "0")
+    if [[ -z "$stats" ]]; then
+        log_error "Failed to fetch dashboard stats"
+        return 1
+    fi
     
-    local active_agents=$(jq '[.agents[] | select(.status == "active")] | length' "$agent_file" 2>/dev/null || echo "0")
-    local idle_agents=$(jq '[.agents[] | select(.status == "idle")] | length' "$agent_file" 2>/dev/null || echo "0")
+    # Parse stats (pipe-delimited)
+    IFS='|' read -r total_agents active_agents idle_agents blocked_agents \
+        total_projects active_projects total_tasks \
+        todo_tasks in_progress_tasks completed_tasks blocked_tasks \
+        avg_progress due_today overdue_tasks <<< "$stats"
     
     cat << EOF
 
@@ -191,12 +190,14 @@ generate_hourly_report() {
 $(date "$DATE_FORMAT")
 
 **Tasks:**
-• Total: $total_tasks | In Progress: $in_progress | Done: $done | Blocked: $blocked
+• Total: $total_tasks | In Progress: $in_progress_tasks | Done: $completed_tasks | Blocked: $blocked_tasks
 
 **Agents:**
 • Active: $active_agents | Idle: $idle_agents
 
-$(if [[ $blocked -gt 0 ]]; then echo "⚠️ Attention: $blocked blocked task(s) need help"; fi)
+$(if [[ $blocked_tasks -gt 0 ]]; then echo "⚠️ Attention: $blocked_tasks blocked task(s) need help"; fi)
+$(if [[ $overdue_tasks -gt 0 ]]; then echo "⏰ Warning: $overdue_tasks overdue task(s)"; fi)
+$(if [[ $due_today -gt 0 ]]; then echo "📅 Due today: $due_today task(s)"; fi)
 
 EOF
 }
@@ -204,12 +205,31 @@ EOF
 generate_daily_report() {
     log_info "Generating daily report..."
     
-    local tasks_file="$MEMORY_DIR/active-tasks.json"
-    local agent_file="$MEMORY_DIR/agent-status.json"
+    # Get dashboard stats
+    local stats=$(sqlite3 "$DB_PATH" "SELECT * FROM v_dashboard_stats" 2>/dev/null || echo "")
     
-    local total_tasks=$(jq '.tasks | length' "$tasks_file" 2>/dev/null || echo "0")
-    local completed_today=$(jq '[.tasks[] | select(.status == "done" and .completed_at | startswith("'$(date +%Y-%m-%d)'"))] | length' "$tasks_file" 2>/dev/null || echo "0")
-    local blocked=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$tasks_file" 2>/dev/null || echo "0")
+    if [[ -z "$stats" ]]; then
+        log_error "Failed to fetch dashboard stats"
+        return 1
+    fi
+    
+    IFS='|' read -r total_agents active_agents idle_agents blocked_agents \
+        total_projects active_projects total_tasks \
+        todo_tasks in_progress_tasks completed_tasks blocked_tasks \
+        avg_progress due_today overdue_tasks <<< "$stats"
+    
+    # Get tasks completed today
+    local completed_today=$(sqlite3 "$DB_PATH" "
+        SELECT COUNT(*) FROM tasks 
+        WHERE status = 'done' 
+        AND DATE(completed_at) = DATE('now')" 2>/dev/null || echo "0")
+    
+    # Get active agents with their current tasks
+    local active_agent_tasks=$(sqlite3 "$DB_PATH" "
+        SELECT a.name, t.title 
+        FROM agents a 
+        LEFT JOIN tasks t ON a.current_task_id = t.id 
+        WHERE a.status = 'active'" 2>/dev/null || echo "")
     
     cat << EOF
 
@@ -218,15 +238,25 @@ $(date "$DATE_FORMAT")
 
 **Today's Progress:**
 • Tasks Completed: $completed_today
-• Tasks In Progress: $(jq '[.tasks[] | select(.status == "in_progress")] | length' "$tasks_file" 2>/dev/null || echo "0")
-• Blocked Tasks: $blocked
+• Tasks In Progress: $in_progress_tasks
+• Blocked Tasks: $blocked_tasks
+• Overdue Tasks: $overdue_tasks
 
 **Active Agents:**
-$(jq -r '.agents[] | select(.status == "active") | "• " + .name + ": " + .current_task' "$agent_file" 2>/dev/null || echo "None")
+$(if [[ -z "$active_agent_tasks" ]]; then 
+    echo "None"; 
+else 
+    while IFS='|' read -r name task; do
+        echo "• $name: ${task:-idle}"
+    done <<< "$active_agent_tasks"
+fi)
 
-$(if [[ $blocked -gt 0 ]]; then echo "🚧 **Blocked Tasks Need Attention:**"; jq -r '.tasks[] | select(.status == "blocked") | "• " + .id + ": " + .title' "$tasks_file" 2>/dev/null; fi)
+$(if [[ $blocked_tasks -gt 0 ]]; then 
+    echo "🚧 **Blocked Tasks Need Attention:**"
+    sqlite3 "$DB_PATH" "SELECT '• ' || id || ': ' || title FROM tasks WHERE status = 'blocked'" 2>/dev/null || echo ""
+fi)
 
-**Summary:** $(if [[ $blocked -eq 0 && $completed_today -gt 0 ]]; then echo "✅ Good progress today!"; elif [[ $blocked -gt 0 ]]; then echo "⚠️ Need to unblock tasks"; else echo "📋 Steady progress"; fi)
+**Summary:** $(if [[ $blocked_tasks -eq 0 && $completed_today -gt 0 ]]; then echo "✅ Good progress today!"; elif [[ $blocked_tasks -gt 0 ]]; then echo "⚠️ Need to unblock tasks"; elif [[ $overdue_tasks -gt 0 ]]; then echo "⏰ Address overdue tasks"; else echo "📋 Steady progress"; fi)
 
 EOF
 }
@@ -272,9 +302,20 @@ main() {
         telegram-daily)
             output_for_telegram generate_daily_report
             ;;
+        db-check)
+            log_info "Checking database connection..."
+            if sqlite3 "$DB_PATH" "SELECT 1" > /dev/null 2>&1; then
+                log_success "Database connected: $DB_PATH"
+                local count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM agents" 2>/dev/null || echo "0")
+                log_info "Agents: $count | Tasks: $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks" 2>/dev/null || echo "0")"
+            else
+                log_error "Failed to connect to database"
+                exit 1
+            fi
+            ;;
         *)
             cat << EOF
-🤖 AI Team Monitor
+🤖 AI Team Monitor (SQLite Version)
 
 Usage: $0 <command>
 
@@ -287,16 +328,15 @@ Commands:
   all             Run all checks
   telegram-hourly Generate hourly report (plain text)
   telegram-daily  Generate daily report (plain text)
+  db-check        Verify database connection
 
 Examples:
   $0 heartbeat
   $0 daily
   $0 all
 
-Files:
-  $MEMORY_DIR/agent-status.json
-  $MEMORY_DIR/active-tasks.json
-  $MEMORY_DIR/TASK-BOARD.md
+Database:
+  $DB_PATH
 
 EOF
             ;;

@@ -410,6 +410,7 @@ $statConfig = [
                         <th>Status</th>
                         <th>Priority</th>
                         <th>Progress</th>
+                        <th>Duration</th>
                         <th>Due Date</th>
                     </tr>
                 </thead>
@@ -427,6 +428,35 @@ $statConfig = [
                                 <div class="progress-fill" style="width: <?= htmlspecialchars($task['progress'] ?? 0) ?>%"></div>
                             </div>
                             <?= htmlspecialchars($task['progress'] ?? 0) ?>%
+                        </td>
+                        <td>
+                            <?php if ($task['status'] === 'done' && !empty($task['actual_duration_minutes'])): ?>
+                                <?php
+                                $mins = $task['actual_duration_minutes'];
+                                if ($mins >= 1440) {
+                                    $duration = floor($mins / 1440) . 'd ' . floor(($mins % 1440) / 60) . 'h';
+                                } elseif ($mins >= 60) {
+                                    $duration = floor($mins / 60) . 'h ' . ($mins % 60) . 'm';
+                                } else {
+                                    $duration = $mins . 'm';
+                                }
+                                ?>
+                                <span style="color: #48bb78; font-weight: 500;"><?= htmlspecialchars($duration) ?></span>
+                            <?php elseif ($task['status'] === 'in_progress' && !empty($task['started_at'])): ?>
+                                <?php
+                                $started = strtotime($task['started_at']);
+                                $elapsed = time() - $started;
+                                $elapsedMins = floor($elapsed / 60);
+                                if ($elapsedMins >= 60) {
+                                    $duration = floor($elapsedMins / 60) . 'h ' . ($elapsedMins % 60) . 'm';
+                                } else {
+                                    $duration = $elapsedMins . 'm';
+                                }
+                                ?>
+                                <span style="color: #4299e1; font-size: 0.85rem;"><?= htmlspecialchars($duration) ?> elapsed</span>
+                            <?php else: ?>
+                                <span style="color: #888;">-</span>
+                            <?php endif; ?>
                         </td>
                         <td><?= htmlspecialchars($task['due_date'] ?? 'N/A') ?></td>
                     </tr>
