@@ -42,9 +42,19 @@ function fetchOne($db, $sql) {
     return $result->fetchArray(SQLITE3_ASSOC) ?: [];
 }
 
+// Note: Health monitoring fields should be added via team_db.py schema migration
+// Dashboard is read-only, schema changes require write access
+
 // Fetch all dashboard data
 $stats = fetchOne($db, 'SELECT * FROM v_dashboard_stats');
-$agents = fetchAll($db, 'SELECT * FROM v_agent_workload ORDER BY name');
+$agents = fetchAll($db, '
+    SELECT 
+        a.*,
+        a.health_status,
+        ROUND((strftime("%s", "now") - strftime("%s", a.last_heartbeat)) / 60.0, 1) as minutes_since_heartbeat
+    FROM v_agent_workload a
+    ORDER BY a.name
+');
 $projects = fetchAll($db, 'SELECT * FROM v_project_status ORDER BY name');
 $tasks = fetchAll($db, 'SELECT t.*, p.name as project_name, a.name as assignee_name FROM tasks t LEFT JOIN projects p ON t.project_id = p.id LEFT JOIN agents a ON t.assignee_id = a.id ORDER BY t.due_date, t.priority');
 $activities = fetchAll($db, 'SELECT th.*, t.title as task_title, a.name as agent_name 
@@ -93,6 +103,39 @@ function badgeClass($status) {
         'planning' => 'badge-planning',
     ];
     return $map[$status] ?? 'badge-idle';
+}
+
+// Helper to get health status class
+function healthClass($healthStatus, $minutesSinceHeartbeat) {
+    if ($healthStatus === 'healthy') return 'health-healthy';
+    if ($healthStatus === 'stale') return 'health-stale';
+    if ($healthStatus === 'offline') return 'health-offline';
+    // Fallback to time-based calculation
+    if ($minutesSinceHeartbeat === null) return 'health-unknown';
+    if ($minutesSinceHeartbeat > 60) return 'health-offline';
+    if ($minutesSinceHeartbeat > 30) return 'health-stale';
+    return 'health-healthy';
+}
+
+// Helper to get health status emoji
+function healthEmoji($healthStatus, $minutesSinceHeartbeat) {
+    if ($healthStatus === 'healthy') return '✅';
+    if ($healthStatus === 'stale') return '🟡';
+    if ($healthStatus === 'offline') return '🔴';
+    // Fallback to time-based calculation
+    if ($minutesSinceHeartbeat === null) return '⚪';
+    if ($minutesSinceHeartbeat > 60) return '🔴';
+    if ($minutesSinceHeartbeat > 30) return '🟡';
+    return '✅';
+}
+
+// Helper to format last seen time
+function formatLastSeen($minutesSinceHeartbeat) {
+    if ($minutesSinceHeartbeat === null) return 'Never';
+    if ($minutesSinceHeartbeat < 1) return 'Just now';
+    if ($minutesSinceHeartbeat < 60) return intval($minutesSinceHeartbeat) . 'm ago';
+    $hours = round($minutesSinceHeartbeat / 60, 1);
+    return $hours . 'h ago';
 }
 
 // Get priority color
@@ -324,6 +367,44 @@ $statConfig = [
         .badge-low { background: #48bb78; color: #fff; }
         .badge-critical { background: #9f7aea; color: #fff; }
         .badge-planning { background: #ed8936; color: #fff; }
+        
+        /* Health Status Styles */
+        .health-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .health-healthy {
+            background: rgba(72, 187, 120, 0.2);
+            color: #48bb78;
+            border: 1px solid rgba(72, 187, 120, 0.3);
+        }
+        .health-stale {
+            background: rgba(237, 137, 54, 0.2);
+            color: #ed8936;
+            border: 1px solid rgba(237, 137, 54, 0.3);
+        }
+        .health-offline {
+            background: rgba(245, 101, 101, 0.2);
+            color: #f56565;
+            border: 1px solid rgba(245, 101, 101, 0.3);
+        }
+        .health-unknown {
+            background: rgba(113, 128, 150, 0.2);
+            color: #718096;
+            border: 1px solid rgba(113, 128, 150, 0.3);
+        }
+        .agent-card {
+            border-left: 4px solid transparent;
+        }
+        .agent-card.health-healthy { border-left-color: #48bb78; }
+        .agent-card.health-stale { border-left-color: #ed8936; }
+        .agent-card.health-offline { border-left-color: #f56565; }
+        .agent-card.health-unknown { border-left-color: #718096; }
         .progress-bar {
             width: 100%;
             height: 6px;
@@ -810,19 +891,33 @@ $statConfig = [
             <div class="section">
                 <h2>👥 Agents (<?= count($agents) ?>)</h2>
                 <div class="agent-grid">
-                    <?php foreach ($agents as $agent): ?>
-                    <div class="agent-card">
+                    <?php foreach ($agents as $agent): 
+                        $healthStatus = $agent['health_status'] ?? 'unknown';
+                        $minutesSince = $agent['minutes_since_heartbeat'] ?? null;
+                        $healthClass = healthClass($healthStatus, $minutesSince);
+                        $healthEmoji = healthEmoji($healthStatus, $minutesSince);
+                        $lastSeen = formatLastSeen($minutesSince);
+                    ?>
+                    <div class="agent-card <?= $healthClass ?>">
                         <div class="agent-header">
                             <div>
                                 <div class="agent-name"><?= htmlspecialchars($agent['name'] ?? 'Unknown') ?></div>
                                 <div class="agent-role"><?= htmlspecialchars($agent['role'] ?? 'N/A') ?></div>
                             </div>
-                            <span class="badge <?= badgeClass($agent['status']) ?>"><?= htmlspecialchars($agent['status'] ?? 'idle') ?></span>
+                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 5px;">
+                                <span class="badge <?= badgeClass($agent['status']) ?>"><?= htmlspecialchars($agent['status'] ?? 'idle') ?></span>
+                                <span class="health-indicator <?= $healthClass ?>" title="Last seen: <?= $lastSeen ?>">
+                                    <?= $healthEmoji ?> <?= htmlspecialchars($healthStatus === 'unknown' && $minutesSince !== null ? healthClass($healthStatus, $minutesSince) : $healthStatus) ?>
+                                </span>
+                            </div>
                         </div>
                         <div class="agent-stats">
                             Active Tasks: <?= htmlspecialchars($agent['active_tasks'] ?? 0) ?> | 
                             In Progress: <?= htmlspecialchars($agent['in_progress_tasks'] ?? 0) ?> |
                             Completed: <?= htmlspecialchars($agent['total_tasks_completed'] ?? 0) ?>
+                        </div>
+                        <div class="agent-stats" style="margin-top: 8px; color: #666;">
+                            💓 Last seen: <?= $lastSeen ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
