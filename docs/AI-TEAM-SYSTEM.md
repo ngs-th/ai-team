@@ -1,6 +1,6 @@
 # 🤖 AI Team System
 
-**Version:** 3.4.1  
+**Version:** 3.4.2  
 **Created:** 2026-02-01  
 **Updated:** 2026-02-02  
 **Status:** Active  
@@ -409,6 +409,14 @@ Created (via Orchestrator/PM)
 | Heartbeat | `UPDATE agents SET last_heartbeat` | Every 10 min |
 | Update status | `UPDATE agents SET status` | State change |
 
+#### Orchestrator (Block Handling)
+
+| Action | DB Operation | When |
+|--------|-------------|------|
+| Block task | `UPDATE tasks SET status = 'blocked', blocked_reason = ?` | Fix loop > 10, info needed |
+| Release agent | `UPDATE agents SET status = 'idle', current_task_id = NULL` | After task blocked |
+| Reassign | `UPDATE tasks SET assignee_id = ?` | Assign new task to idle agent |
+
 ---
 
 ### 5.5 CLI Usage
@@ -556,12 +564,46 @@ After: Confirm working → "✅ Task complete"
 
 ### Blocked Status Usage
 
-| สถานการณ์ | การกระทำ | blocked_reason |
-|-----------|----------|----------------|
-| วนลูปแก้ไข > 10 รอบ | หยุด, แจ้ง user | fix-loop-exceeded |
-| ต้องการข้อมูลเพิ่ม | หยุด, แจ้ง user | info-required |
-| ไม่เข้าใจ requirements | หยุด, แจ้ง user | unclear-requirements |
-| ต้องตัดสินใจ design | หยุด, แจ้ง user | needs-design-decision |
+**⚠️ IMPORTANT: Block the TASK, not the AGENT**
+
+```
+When task needs to be blocked:
+    │
+    ├──> Task.status = 'blocked'
+    ├──> Task.blocked_reason = '[reason]'
+    ├──> Agent.status = 'idle'          <-- Agent ว่างแล้ว
+    ├──> Agent.current_task_id = NULL   <-- ไม่มีงานติดตัว
+    └──> Agent รับงานใหม่ได้ทันที
+```
+
+**ผลลัพธ์:** Agent ว่าง → รับงานใหม่ได้ → ไม่ waste resource
+
+| สถานการณ์ | Task | Agent | blocked_reason |
+|-----------|------|-------|----------------|
+| วนลูปแก้ไข > 10 รอบ | blocked | idle | fix-loop-exceeded |
+| ต้องการข้อมูลเพิ่ม | blocked | idle | info-required |
+| ไม่เข้าใจ requirements | blocked | idle | unclear-requirements |
+| ต้องตัดสินใจ design | blocked | idle | needs-design-decision |
+
+### Agent Reassignment After Block
+
+```
+Task T-001 (blocked) ──> Agent A หลุด (idle)
+                              │
+                              ▼
+                    รับ Task T-002 ใหม่ทันที
+```
+
+**อย่าทำแบบนี้:**
+```
+❌ ผิด: Agent.status = 'blocked'  (Agent ติดๆ ไม่ทำงาน)
+```
+
+**ทำแบบนี้:**
+```
+✅ ถูก: Task.status = 'blocked'   (งานติด, คนไม่ติด)
+       Agent.status = 'idle'     (คนว่าง ไปทำงานอื่น)
+```
 
 ### Telegram Notifications
 
@@ -821,6 +863,7 @@ Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **3.4.2** | 2026-02-02 | Clarified Blocked Status: Block the TASK (not the AGENT) so agent can be reassigned to other work immediately |
 | **3.4.1** | 2026-02-02 | Added MANDATORY testing requirement: Agents must test (syntax, database, basic functionality) before marking tasks complete |
 | **3.4.0** | 2026-02-02 | Added Kanban Dashboard, Duration Tracking, Telegram Notifications, Fix Loop Limit (10), Blocked Status with reason |
 | **3.3.0** | 2026-02-02 | Enhanced Autonomous Fix Protocol: Fix ALL issues iteratively until clean (Fix Until Clean principle) |
