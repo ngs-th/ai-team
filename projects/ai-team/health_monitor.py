@@ -423,7 +423,7 @@ class HealthMonitor:
                 # 3. Log the action
                 cursor.execute('''
                     INSERT INTO task_history (task_id, agent_id, action, notes)
-                    VALUES (?, ?, 'auto_blocked', ?)
+                    VALUES (?, ?, 'blocked', ?)
                 ''', (task_id, agent_id, f"Auto-blocked by health monitor after {int(minutes)} minutes"))
                 
                 self.conn.commit()
