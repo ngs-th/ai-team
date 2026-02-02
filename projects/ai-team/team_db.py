@@ -56,7 +56,7 @@ class AITeamDB:
         if not project_id:
             raise ValueError("project_id is required - every task must belong to a project")
         
-        task_id = f"T-{datetime.now().strftime('%Y%m%d')}-{self._get_next_task_number()}"
+        task_id = f"T-{datetime.now().strftime('%Y%m%d')}-{self._get_next_task_number():03d}"
         
         cursor = self.conn.cursor()
         cursor.execute('''
