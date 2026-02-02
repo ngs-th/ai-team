@@ -614,6 +614,38 @@ class AITeamDB:
             'expected_outcome': row[2]
         }
 
+    def get_agent_context(self, agent_id: str) -> dict:
+        """Get agent context from database"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT context, learnings, preferences, last_updated
+            FROM agent_context WHERE agent_id = ?
+        ''', (agent_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'context': row[0],
+                'learnings': row[1],
+                'preferences': row[2],
+                'last_updated': row[3]
+            }
+        return None
+
+    def update_agent_context(self, agent_id: str, field: str, content: str) -> bool:
+        """Update agent context field"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(f'''
+                UPDATE agent_context 
+                SET {field} = ?, last_updated = CURRENT_TIMESTAMP
+                WHERE agent_id = ?
+            ''', (content, agent_id))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"[Error] Failed to update context: {e}")
+            return False
+
 
 def main():
     parser = argparse.ArgumentParser(description='AI Team Database Manager')
@@ -689,6 +721,23 @@ def main():
     
     heartbeat = agent_sub.add_parser('heartbeat', help='Update agent heartbeat')
     heartbeat.add_argument('agent_id', help='Agent ID')
+    
+    # Agent context commands
+    context = agent_sub.add_parser('context', help='Manage agent context')
+    context_sub = context.add_subparsers(dest='context_action')
+    
+    ctx_show = context_sub.add_parser('show', help='Show agent context')
+    ctx_show.add_argument('agent_id', help='Agent ID')
+    
+    ctx_update = context_sub.add_parser('update', help='Update agent context')
+    ctx_update.add_argument('agent_id', help='Agent ID')
+    ctx_update.add_argument('--field', choices=['context', 'learnings', 'preferences'], 
+                           default='context', help='Field to update')
+    ctx_update.add_argument('--content', required=True, help='New content')
+    
+    ctx_learn = context_sub.add_parser('learn', help='Add learning to agent')
+    ctx_learn.add_argument('agent_id', help='Agent ID')
+    ctx_learn.add_argument('learning', help='Learning to add')
     
     # Dashboard commands
     dash_parser = subparsers.add_parser('dashboard', help='Dashboard')
@@ -825,6 +874,33 @@ def main():
             elif args.agent_action == 'heartbeat':
                 if db.update_agent_heartbeat(args.agent_id):
                     print(f"💓 Heartbeat updated for {args.agent_id}")
+                    
+            elif args.agent_action == 'context':
+                if args.context_action == 'show':
+                    ctx = db.get_agent_context(args.agent_id)
+                    if ctx:
+                        print(f"\n📝 Agent Context: {args.agent_id}\n")
+                        print(f"📋 Context:\n{ctx.get('context', 'Not set')}\n")
+                        print(f"🧠 Learnings:\n{ctx.get('learnings', 'None')}\n")
+                        print(f"⚙️  Preferences:\n{ctx.get('preferences', 'None')}\n")
+                        print(f"🕐 Last Updated: {ctx.get('last_updated', 'Never')}")
+                    else:
+                        print(f"⚠️ No context found for {args.agent_id}")
+                        
+                elif args.context_action == 'update':
+                    if db.update_agent_context(args.agent_id, args.field, args.content):
+                        print(f"✅ Updated {args.field} for {args.agent_id}")
+                        
+                elif args.context_action == 'learn':
+                    ctx = db.get_agent_context(args.agent_id)
+                    if ctx:
+                        new_learning = f"- {args.learning}"
+                        existing = ctx.get('learnings', '')
+                        updated = f"{existing}\n{new_learning}" if existing else new_learning
+                        if db.update_agent_context(args.agent_id, 'learnings', updated):
+                            print(f"✅ Added learning to {args.agent_id}")
+                    else:
+                        print(f"⚠️ Agent {args.agent_id} not found")
                     
         elif args.command == 'dashboard':
             stats = db.get_dashboard_stats()
