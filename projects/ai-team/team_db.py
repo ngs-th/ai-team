@@ -7,11 +7,28 @@ Manage tasks, agents, and projects for the AI Team
 import sqlite3
 import json
 import argparse
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
 
 DB_PATH = Path(__file__).parent / "team.db"
+TELEGRAM_CHANNEL = "1268858185"
+
+def send_telegram_notification(message: str) -> bool:
+    """Send notification to Telegram channel using OpenClaw message tool"""
+    try:
+        result = subprocess.run(
+            ["openclaw", "message", "send", "--channel", "telegram", 
+             "--target", TELEGRAM_CHANNEL, "--message", message],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0
+    except Exception as e:
+        print(f"[Notification Error] Failed to send Telegram message: {e}")
+        return False
 
 class AITeamDB:
     def __init__(self, db_path: Path = DB_PATH):
@@ -35,6 +52,10 @@ class AITeamDB:
                     priority: str = "normal", estimated_hours: float = None,
                     due_date: str = None) -> str:
         """Create a new task"""
+        # MANDATORY: Every task must have a project
+        if not project_id:
+            raise ValueError("project_id is required - every task must belong to a project")
+        
         task_id = f"T-{datetime.now().strftime('%Y%m%d')}-{self._get_next_task_number()}"
         
         cursor = self.conn.cursor()
@@ -52,6 +73,12 @@ class AITeamDB:
         ''', (task_id, f"Task created with priority {priority}"))
         
         self.conn.commit()
+        
+        # Send Telegram notification
+        assignee_str = assignee_id if assignee_id else "Unassigned"
+        notification = f"🆕 Task {task_id}: {title} created (Assignee: {assignee_str})"
+        send_telegram_notification(notification)
+        
         return task_id
     
     def assign_task(self, task_id: str, agent_id: str) -> bool:
@@ -81,9 +108,18 @@ class AITeamDB:
         self.conn.commit()
         return cursor.rowcount > 0
     
-    def start_task(self, task_id: str) -> bool:
+    def start_task(self, task_id: str, agent_id: str = None) -> bool:
         """Start working on a task"""
         cursor = self.conn.cursor()
+        
+        # Get task info before updating
+        cursor.execute('SELECT title, assignee_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        
+        task_title = row[0]
+        assignee = agent_id or row[1] or "Unknown"
         
         cursor.execute('''
             UPDATE tasks 
@@ -99,6 +135,45 @@ class AITeamDB:
         ''', (task_id,))
         
         self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"🚀 Task {task_id} started by {assignee}"
+        send_telegram_notification(notification)
+        
+        return cursor.rowcount > 0
+    
+    def send_to_review(self, task_id: str) -> bool:
+        """Send task to review (in_progress -> review)"""
+        cursor = self.conn.cursor()
+        
+        # Get task info before updating
+        cursor.execute('SELECT title, status FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        
+        old_status = row[1]
+        if old_status != 'in_progress':
+            print(f"⚠️ Task {task_id} must be in_progress to send to review")
+            return False
+        
+        cursor.execute('''
+            UPDATE tasks 
+            SET status = 'review', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (task_id,))
+        
+        cursor.execute('''
+            INSERT INTO task_history (task_id, action, old_status, new_status)
+            VALUES (?, 'updated', 'in_progress', 'review')
+        ''', (task_id,))
+        
+        self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"👀 Task {task_id} sent for review"
+        send_telegram_notification(notification)
+        
         return cursor.rowcount > 0
     
     def update_progress(self, task_id: str, progress: int, notes: str = "") -> bool:
@@ -128,13 +203,16 @@ class AITeamDB:
         """Mark task as completed"""
         cursor = self.conn.cursor()
         
-        # Calculate actual duration if started_at exists
-        cursor.execute('''
-            SELECT started_at FROM tasks WHERE id = ?
-        ''', (task_id,))
+        # Get task info before updating
+        cursor.execute('SELECT title, started_at FROM tasks WHERE id = ?', (task_id,))
         row = cursor.fetchone()
+        if not row:
+            return False
         
-        if row and row[0]:
+        task_title = row[0]
+        
+        # Calculate actual duration if started_at exists
+        if row[1]:
             # Calculate duration in minutes
             cursor.execute('''
                 UPDATE tasks 
@@ -167,6 +245,11 @@ class AITeamDB:
         ''', (task_id,))
         
         self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"✅ Task {task_id} completed"
+        send_telegram_notification(notification)
+        
         return cursor.rowcount > 0
     
     def block_task(self, task_id: str, reason: str) -> bool:
@@ -175,7 +258,7 @@ class AITeamDB:
         
         cursor.execute('''
             UPDATE tasks 
-            SET status = 'blocked', notes = ?, updated_at = CURRENT_TIMESTAMP
+            SET status = 'blocked', blocked_reason = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (reason, task_id))
         
@@ -191,6 +274,52 @@ class AITeamDB:
         ''', (task_id, reason))
         
         self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"🚫 Task {task_id} blocked: {reason}"
+        send_telegram_notification(notification)
+        
+        return cursor.rowcount > 0
+    
+    def unblock_task(self, task_id: str, agent_id: str = None) -> bool:
+        """Unblock a task and resume (blocked -> in_progress)"""
+        cursor = self.conn.cursor()
+        
+        # Get task info before updating
+        cursor.execute('SELECT title, assignee_id, status FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        
+        if row[2] != 'blocked':
+            print(f"⚠️ Task {task_id} is not blocked")
+            return False
+        
+        assignee = agent_id or row[1] or "Unknown"
+        
+        cursor.execute('''
+            UPDATE tasks 
+            SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (task_id,))
+        
+        cursor.execute('''
+            UPDATE agents 
+            SET status = 'active', updated_at = CURRENT_TIMESTAMP
+            WHERE id = (SELECT assignee_id FROM tasks WHERE id = ?)
+        ''', (task_id,))
+        
+        cursor.execute('''
+            INSERT INTO task_history (task_id, action, old_status, new_status)
+            VALUES (?, 'unblocked', 'blocked', 'in_progress')
+        ''', (task_id,))
+        
+        self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"🔄 Task {task_id} resumed"
+        send_telegram_notification(notification)
+        
         return cursor.rowcount > 0
     
     def get_tasks(self, status: str = None, assignee: str = None) -> List[Dict]:
@@ -361,12 +490,27 @@ class AITeamDB:
         cursor = self.conn.cursor()
         today = datetime.now().strftime('%Y-%m-%d')
         cursor.execute('''
-            SELECT t.id, t.title, a.name as assignee
+            SELECT t.id, t.title, a.name as assignee,
+                   t.actual_duration_minutes
             FROM tasks t
             JOIN agents a ON t.assignee_id = a.id
             WHERE DATE(t.completed_at) = ?
         ''', (today,))
         return [dict(row) for row in cursor.fetchall()]
+    
+    def recalculate_durations(self) -> int:
+        """Recalculate actual_duration_minutes for all completed tasks that don't have it set"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE tasks 
+            SET actual_duration_minutes = ROUND((strftime('%s', completed_at) - strftime('%s', started_at)) / 60)
+            WHERE status = 'done' 
+              AND completed_at IS NOT NULL 
+              AND started_at IS NOT NULL
+              AND actual_duration_minutes IS NULL
+        ''')
+        self.conn.commit()
+        return cursor.rowcount
 
 
 def main():
@@ -401,9 +545,16 @@ def main():
     done = task_sub.add_parser('done', help='Complete task')
     done.add_argument('task_id', help='Task ID')
     
+    review = task_sub.add_parser('review', help='Send task to review')
+    review.add_argument('task_id', help='Task ID')
+    
     block = task_sub.add_parser('block', help='Block task')
     block.add_argument('task_id', help='Task ID')
     block.add_argument('reason', help='Block reason')
+    
+    unblock = task_sub.add_parser('unblock', help='Unblock and resume task')
+    unblock.add_argument('task_id', help='Task ID')
+    unblock.add_argument('--agent', help='Agent ID resuming the task')
     
     list_tasks = task_sub.add_parser('list', help='List tasks')
     list_tasks.add_argument('--status', choices=['todo', 'in_progress', 'done', 'blocked'],
@@ -452,6 +603,10 @@ def main():
             elif args.task_action == 'start':
                 if db.start_task(args.task_id):
                     print(f"✅ Task {args.task_id} started")
+            
+            elif args.task_action == 'review':
+                if db.send_to_review(args.task_id):
+                    print(f"✅ Task {args.task_id} sent to review")
                     
             elif args.task_action == 'progress':
                 if db.update_progress(args.task_id, args.percent, args.notes):
@@ -464,6 +619,10 @@ def main():
             elif args.task_action == 'block':
                 if db.block_task(args.task_id, args.reason):
                     print(f"⚠️ Task {args.task_id} blocked: {args.reason}")
+            
+            elif args.task_action == 'unblock':
+                if db.unblock_task(args.task_id, args.agent):
+                    print(f"✅ Task {args.task_id} unblocked and resumed")
                     
             elif args.task_action == 'list':
                 tasks = db.get_tasks(status=args.status, assignee=args.agent)

@@ -260,7 +260,7 @@ CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
-    project_id TEXT,
+    project_id TEXT NOT NULL,  -- ⚠️ MANDATORY: Every task must have a project
     assignee_id TEXT,
     status TEXT DEFAULT 'todo' 
         CHECK (status IN ('todo', 'in_progress', 'review', 'done', 'blocked', 'cancelled')),
@@ -371,7 +371,7 @@ Created (via Orchestrator/PM)
 | Action | DB Operation | When |
 |--------|-------------|------|
 | Create project | `INSERT INTO projects` | New project starts |
-| Create task | `INSERT INTO tasks` | Spawn task for agent |
+| Create task | `INSERT INTO tasks` | Spawn task for agent (MUST include project_id) |
 | Assign task | `UPDATE tasks SET assignee_id` | Assign to agent |
 | Monitor | `SELECT * FROM v_dashboard_stats` | Periodic check |
 | Escalate | `UPDATE tasks SET status = 'blocked'` | Issue detected |
@@ -416,6 +416,28 @@ Created (via Orchestrator/PM)
 | Block task | `UPDATE tasks SET status = 'blocked', blocked_reason = ?` | Fix loop > 10, info needed |
 | Release agent | `UPDATE agents SET status = 'idle', current_task_id = NULL` | After task blocked |
 | Reassign | `UPDATE tasks SET assignee_id = ?` | Assign new task to idle agent |
+
+---
+
+### 5.4a Validation Rules (MANDATORY)
+
+#### Rule 1: Every Task Must Have Project
+```
+❌ INVALID: INSERT INTO tasks (title) VALUES ('Task name')
+✅ VALID:   INSERT INTO tasks (title, project_id) VALUES ('Task name', 'PROJ-001')
+
+Error if project_id is NULL: "ERROR: Every task must have a project"
+```
+
+**Check before creating task:**
+```python
+if not project_id:
+    raise ValueError("project_id is required - every task must belong to a project")
+```
+
+#### Rule 2: Task ID Format
+- Format: `T-YYYYMMDD-NNN`
+- Example: `T-20260202-001`
 
 ---
 
