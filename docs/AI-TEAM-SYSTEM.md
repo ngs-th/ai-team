@@ -1185,6 +1185,85 @@ CREATE TABLE alert_history (
 
 ---
 
+## 12. Alert Response Workflow
+
+เมื่อได้รับการแจ้งเตือนจาก Health Monitor ต้องทำตามขั้นตอนนี้:
+
+### 12.1 ประเภท Alerts และการตอบสนอง
+
+| Alert Type | เงื่อนไข | การตอบสนองอัตโนมัติ | การแจ้งผู้ใช้ |
+|------------|----------|---------------------|--------------|
+| **Agent Stuck** | Task in_progress > 2h ไม่มี progress | 1. ตรวจสอบ subagent session ยังทำงานอยู่หรือไม่<br>2. ถ้าค้าง → unblock task, reset agent เป็น idle<br>3. รี(assign) ให้ agent อื่นหรือให้ agent เดิมเริ่มใหม่ | แจ้งเมื่อต้อง reassign |
+| **Agent Offline** | Heartbeat หาย > 60 min | 1. ตั้ง agent status = offline<br>2. ย้ายงานที่กำลังทำ → ให้ agent อื่น<br>3. Log ว่า agent offline | แจ้งทันที |
+| **Task Stuck** | In progress > 2h ไม่มี progress update | 1. ตรวจสอบว่าเป็น subagent หรือไม่<br>2. ถ้า subagent ค้าง → kill session<br>3. Block task + ปล่อย agent<br>4. รอผู้ใช้ตัดสินใจ (continue/abort/reassign) | แจ้งทันที พร้อมตัวเลือก |
+| **Fix Loop Exceeded** | Fix attempts > 10 | 1. Block task<br>2. ปล่อย agent เป็น idle<br>3. แจ้งผู้ใช้พร้อมเหตุผล | แจ้งทันที |
+
+### 12.2 Response Commands
+
+```bash
+# ตรวจสอบสถานะล่าสุด
+python3 team_db.py health status
+
+# ตรวจสอบเฉพาะ task ที่ค้าง
+python3 team_db.py task list --status in_progress --stuck
+
+# Unblock และ reassign
+python3 team_db.py task unblock <task_id>
+python3 team_db.py task reassign <task_id> <new_agent>
+
+# Kill subagent session (ถ้าค้าง)
+openclaw sessions list --active
+openclaw sessions kill <session_id>
+
+# รีเซ็ต agent
+python3 team_db.py agent reset <agent_id>
+```
+
+### 12.3 Decision Tree
+
+```
+ได้รับ Alert "Task Stuck"
+         │
+         ▼
+┌─────────────────────┐
+│ Subagent ยังทำงาน? │
+└─────────────────────┘
+    │           │
+   Yes          No
+    │           │
+    ▼           ▼
+┌─────────┐  ┌──────────────────┐
+│ รอต่อ?  │  │ Agent ยัง active?│
+│ > 30 min│  └──────────────────┘
+└─────────┘       │          │
+    │            Yes         No
+   Yes            │          │
+    │             ▼          ▼
+    ▼      ┌──────────┐  ┌─────────┐
+┌────────┐ │ Auto-kill │  │ Unblock │
+│ Kill   │ │ session   │  │ task    │
+│session │ └──────────┘  └─────────┘
+└────────┘      │              │
+    │           ▼              ▼
+    │    ┌─────────────────────────┐
+    └───>│ Block task + Release    │
+         │ agent → Notify user     │
+         └─────────────────────────┘
+```
+
+### 12.4 User Response Options
+
+เมื่อผู้ใช้ได้รับแจ้งเตือน สามารถตอบ:
+
+| คำสั่ง | ผลลัพธ์ |
+|--------|---------|
+| "continue" / "ทำต่อ" | Unblock task, agent เริ่มทำใหม่ |
+| "reassign to [agent]" / "ให้ [ชื่อ] ทำ" | Reassign ให้ agent ใหม่ |
+| "abort" / "ยกเลิก" | Cancel task, agent ว่าง |
+| "check" / "ตรวจสอบ" | รายงานสถานะปัจจุบัน |
+
+---
+
 **Last Updated:** 2026-02-02  
 **Maintainer:** Orchestrator Agent  
 **Next Review:** 2026-03-02
