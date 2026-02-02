@@ -906,16 +906,31 @@ $statConfig = [
             const body = document.getElementById('modalBody');
             
             title.textContent = `#${task.id}: ${task.title}`;
+            
+            // Format date helper
+            const formatDate = (dateStr) => {
+                if (!dateStr) return null;
+                const date = new Date(dateStr);
+                return date.toLocaleString('th-TH', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            };
+            
             body.innerHTML = `
                 <p><strong>Status:</strong> <span style="text-transform: uppercase; color: ${getStatusColor(task.status)}">${task.status}</span></p>
                 <p><strong>Priority:</strong> ${task.priority}</p>
                 <p><strong>Assignee:</strong> ${task.assignee_name || 'Unassigned'}</p>
                 <p><strong>Project:</strong> ${task.project_name || 'N/A'}</p>
-                ${task.due_date ? `<p><strong>Due Date:</strong> ${task.due_date}</p>` : ''}
-                ${task.started_at ? `<p><strong>Started:</strong> ${task.started_at}</p>` : ''}
-                ${task.completed_at ? `<p><strong>Completed:</strong> ${task.completed_at}</p>` : ''}
-                ${task.blocked_reason ? `<p><strong>Blocked Reason:</strong> <span style="color: #f56565">${task.blocked_reason}</span></p>` : ''}
-                ${task.description ? `<p><strong>Description:</strong></p><p style="margin-left: 10px; color: #a0aec0;">${task.description}</p>` : ''}
+                ${task.created_at ? `<p><strong>📅 Created:</strong> ${formatDate(task.created_at)}</p>` : ''}
+                ${task.started_at ? `<p><strong>🚀 Started:</strong> ${formatDate(task.started_at)}</p>` : '<p><strong>🚀 Started:</strong> <span style="color: #718096">Not started yet</span></p>'}
+                ${task.completed_at ? `<p><strong>✅ Completed:</strong> ${formatDate(task.completed_at)}</p>` : ''}
+                ${task.due_date ? `<p><strong>⏰ Due Date:</strong> ${task.due_date}</p>` : ''}
+                ${task.blocked_reason ? `<p><strong>🚫 Blocked Reason:</strong> <span style="color: #f56565">${task.blocked_reason}</span></p>` : ''}
+                ${task.description ? `<p><strong>📝 Description:</strong></p><p style="margin-left: 10px; color: #a0aec0;">${task.description}</p>` : ''}
             `;
             
             modal.classList.add('active');
