@@ -1,6 +1,6 @@
 # 🤖 AI Team System
 
-**Version:** 3.3.0  
+**Version:** 3.4.0  
 **Created:** 2026-02-01  
 **Updated:** 2026-02-02  
 **Status:** Active  
@@ -21,7 +21,8 @@
 9. [Communication Protocol](#9-communication-protocol)
 10. [Tools Reference](#10-tools-reference)
 11. [Cron Monitoring System](#11-cron-monitoring-system)
-12. [Version History](#12-version-history)
+12. [Dashboard (Kanban)](#12-dashboard-kanban)
+13. [Version History](#13-version-history)
 
 ---
 
@@ -263,10 +264,13 @@ CREATE TABLE tasks (
     assignee_id TEXT,
     status TEXT DEFAULT 'todo' 
         CHECK (status IN ('todo', 'in_progress', 'review', 'done', 'blocked', 'cancelled')),
+    blocked_reason TEXT,  -- เหตุผลที่ถูก block (fix-loop-exceeded, info-required, etc.)
     priority TEXT DEFAULT 'normal' 
         CHECK (priority IN ('critical', 'high', 'normal', 'low')),
     progress INTEGER DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
     estimated_hours REAL,
+    actual_duration_minutes INTEGER,  -- ระยะเวลาที่ใช้จริง (นาที) คำนวณจาก started_at -> completed_at
+    fix_loop_count INTEGER DEFAULT 0,  -- จำนวนรอบแก้ไข (สำหรับ auto-fix tracking)
     actual_hours REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
@@ -505,8 +509,35 @@ Agent: "✅ Task complete. Delivered: [files]"
 หยุดแก้อัตโนมัติ และถามผู้ใช้เมื่อ:
 - **ไม่รู้ว่าต้องแก้ยังไง** (ไม่เข้าใจ error)
 - **แก้แล้วพัง** (fix นึงทำให้เกิดปัญหาใหม่)
-- **วนลูป > 5 รอบ** ยังไม่ clean
+- **วนลูป > 10 รอบ** (hard limit) → เปลี่ยน status เป็น **blocked**
 - **ต้องตัดสินใจเรื่อง design/architecture**
+- **ต้องการข้อมูลเพิ่มเติม** จาก user → เปลี่ยน status เป็น **blocked**
+
+### Safety Limit: 10 Fix Rounds
+
+```
+รอบที่ 1-5:  แก้ไขตามปกติ
+รอบที่ 6-9:  แจ้งเตือน Telegram "⚠️ Fix loop warning: X rounds"
+รอบที่ 10:   STOP → แจ้ง Telegram → เปลี่ยน status เป็น blocked
+```
+
+### Blocked Status Usage
+
+| สถานการณ์ | การกระทำ | blocked_reason |
+|-----------|----------|----------------|
+| วนลูปแก้ไข > 10 รอบ | หยุด, แจ้ง user | fix-loop-exceeded |
+| ต้องการข้อมูลเพิ่ม | หยุด, แจ้ง user | info-required |
+| ไม่เข้าใจ requirements | หยุด, แจ้ง user | unclear-requirements |
+| ต้องตัดสินใจ design | หยุด, แจ้ง user | needs-design-decision |
+
+### Telegram Notifications
+
+**ส่งข้อความไป Telegram เมื่อ:**
+- ✅ Task เริ่มทำ
+- ✅ Task เสร็จสมบูรณ์
+- ⚠️ Task ถูก block
+- ⚠️ Fix loop ครบ 5, 8, 10 รอบ
+- 📊 สรุปรายวัน
 - **มีความเสี่ยงสูง** (ลบข้อมูล, เปลี่ยน DB schema)
 - มี **ความเสี่ยง** สูง (ลบข้อมูล, เปลี่ยน architecture)
 
@@ -692,10 +723,72 @@ QA Quinn: Done - ผ่านการทดสอบทั้งหมด
 
 ---
 
-## 12. Version History
+## 12. Dashboard (Kanban)
+
+### 12.1 Kanban Board View
+
+Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
+
+```
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│    TODO     │ IN PROGRESS │   REVIEW    │    DONE     │   BLOCKED   │
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ 📝 Task A   │ 🔄 Task B   │ 👀 Task C   │ ✅ Task D   │ 🚧 Task E   │
+│ 🔴 Critical │ 🟠 High     │ 🟡 Normal   │             │ ⚠️ Loop >10 │
+│ 📅 Due: 2d  │ ⏱️ 2h 30m   │             │             │ ❓ Info needed│
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ 📝 Task F   │ 🔄 Task G   │             │             │             │
+│ 🟡 Normal   │ 🟠 High     │             │             │             │
+│ 📅 Due: 5d  │ ⏱️ 45m      │             │             │             │
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
+```
+
+### 12.2 Task Card Information
+
+แต่ละ Card แสดง:
+- **ไอคอน + ชื่องาน**
+- **สี Priority**: 🔴 Critical, 🟠 High, 🟡 Normal, 🟢 Low
+- **Assignee Avatar**
+- **Duration**: ⏱️ ระยะเวลาที่ใช้ (คำนวณจาก started_at → now/completed_at)
+- **Due Date**: 📅 กำหนดส่ง
+- **Blocked Reason**: ⚠️ แสดงเหตุผลถ้า status = blocked
+
+### 12.3 Duration Tracking
+
+| Field | Description |
+|-------|-------------|
+| `started_at` | เวลาเริ่มงาน (auto-set when status → in_progress) |
+| `completed_at` | เวลาเสร็จ (auto-set when status → done) |
+| `actual_duration_minutes` | ระยะเวลาที่ใช้จริง (auto-calculated) |
+
+**คำนวณอัตโนมัติ:**
+```
+ถ้า status = done:
+  duration = completed_at - started_at
+ถ้า status = in_progress:
+  duration = now - started_at (real-time)
+```
+
+### 12.4 Drag & Drop
+
+- ลาก Task ไปยัง Column อื่นเพื่อเปลี่ยน status
+- Auto-update database ทันที
+- บันทึก history การย้าย
+
+### 12.5 Blocked Column
+
+แสดงเฉพาะ Task ที่ status = blocked พร้อม:
+- 🔴 Red border highlight
+- Blocked reason badge
+- "Unblock" button (สำหรับ Orchestrator)
+
+---
+
+## 13. Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **3.4.0** | 2026-02-02 | Added Kanban Dashboard, Duration Tracking, Telegram Notifications, Fix Loop Limit (10), Blocked Status with reason |
 | **3.3.0** | 2026-02-02 | Enhanced Autonomous Fix Protocol: Fix ALL issues iteratively until clean (Fix Until Clean principle) |
 | **3.2.0** | 2026-02-02 | Added Autonomous Fix Protocol: Orchestrator auto-fixes issues after agent reports without asking permission |
 | **3.1.0** | 2026-02-02 | Added Cron Monitoring System section (active jobs, monitoring rules, alerts, reports) |
