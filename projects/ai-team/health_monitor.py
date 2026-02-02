@@ -370,13 +370,72 @@ class HealthMonitor:
         print("\n" + "=" * 50)
         print(f"Health check complete: {len(critical_issues)} critical, {len(warning_issues)} warnings, {alerts_sent} alerts sent")
         
+        # Auto-response for stuck tasks (> 3 hours)
+        auto_resolved = self._auto_response(stuck_tasks)
+        
         return {
             'timestamp': datetime.now().isoformat(),
             'critical_count': len(critical_issues),
             'warning_count': len(warning_issues),
             'alerts_sent': alerts_sent,
+            'auto_resolved': auto_resolved,
             'issues': all_issues
         }
+
+    def _auto_response(self, stuck_tasks: List[Dict]) -> int:
+        """
+        Auto-response for stuck tasks based on Alert Response Workflow
+        - Task stuck > 3 hours: Auto-block and release agent
+        - Returns count of auto-resolved tasks
+        """
+        resolved = 0
+        cursor = self.conn.cursor()
+        
+        for task in stuck_tasks:
+            minutes = task.get('minutes_since_update', 0)
+            
+            # Only auto-respond if stuck > 3 hours (180 minutes)
+            if minutes >= 180:
+                task_id = task['task_id']
+                agent_id = task['agent_id']
+                agent_name = task['agent_name']
+                
+                print(f"  🔄 Auto-resolving stuck task {task_id} (>3h)")
+                
+                # 1. Block the task
+                cursor.execute('''
+                    UPDATE tasks 
+                    SET status = 'blocked', 
+                        blocked_reason = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (f"Auto-blocked: Stuck for {int(minutes)} minutes", task_id))
+                
+                # 2. Release the agent (set to idle, clear current_task)
+                cursor.execute('''
+                    UPDATE agents 
+                    SET status = 'idle',
+                        current_task_id = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (agent_id,))
+                
+                # 3. Log the action
+                cursor.execute('''
+                    INSERT INTO task_history (task_id, agent_id, action, notes)
+                    VALUES (?, ?, 'auto_blocked', ?)
+                ''', (task_id, agent_id, f"Auto-blocked by health monitor after {int(minutes)} minutes"))
+                
+                self.conn.commit()
+                
+                # 4. Send notification
+                message = f"🚫 *Auto-Blocked:* Task {task_id} blocked after {int(minutes)} minutes\nAgent {agent_name} released and available for new tasks"
+                self._send_telegram_alert(message, f"auto_block_{task_id}")
+                
+                resolved += 1
+                print(f"  ✅ Task {task_id} auto-blocked, {agent_name} released")
+        
+        return resolved
 
     def get_health_status(self) -> Dict:
         """Get current health status summary"""
@@ -503,6 +562,8 @@ def main():
     parser.add_argument('--check', action='store_true', help='Run health check once')
     parser.add_argument('--status', action='store_true', help='Show current health status')
     parser.add_argument('--daemon', action='store_true', help='Run as daemon (for cron)')
+    parser.add_argument('--auto-resolve', action='store_true', help='Auto-resolve stuck tasks (>3h)')
+    parser.add_argument('--resolve-task', type=str, help='Manually resolve specific stuck task ID')
     
     args = parser.parse_args()
     
@@ -514,6 +575,26 @@ def main():
                 exit(1)
         elif args.status:
             monitor.print_health_status()
+        elif args.auto_resolve:
+            # Force auto-resolve all stuck tasks > 3 hours
+            print("🔄 Running auto-resolve for stuck tasks...")
+            stuck = monitor.check_stuck_tasks()
+            resolved = monitor._auto_response(stuck)
+            print(f"✅ Auto-resolved {resolved} tasks")
+        elif args.resolve_task:
+            # Resolve specific task
+            task_id = args.resolve_task
+            print(f"🔄 Resolving task {task_id}...")
+            cursor = monitor.conn.cursor()
+            cursor.execute('''
+                UPDATE tasks 
+                SET status = 'blocked', 
+                    blocked_reason = 'Manually resolved by health monitor',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'in_progress'
+            ''', (task_id,))
+            monitor.conn.commit()
+            print(f"✅ Task {task_id} blocked, agent released")
         else:
             # Default: show status
             monitor.print_health_status()
