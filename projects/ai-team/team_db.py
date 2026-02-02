@@ -58,7 +58,8 @@ class AITeamDB:
     def create_task(self, title: str, description: str = "", 
                     assignee_id: str = None, project_id: str = None,
                     priority: str = "normal", estimated_hours: float = None,
-                    due_date: str = None) -> str:
+                    due_date: str = None, prerequisites: str = None,
+                    acceptance_criteria: str = None, expected_outcome: str = None) -> str:
         """Create a new task"""
         # MANDATORY: Every task must have a project
         if not project_id:
@@ -69,10 +70,12 @@ class AITeamDB:
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT INTO tasks (id, title, description, assignee_id, project_id,
-                             priority, estimated_hours, due_date, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'todo')
+                             priority, estimated_hours, due_date, status,
+                             prerequisites, acceptance_criteria, expected_outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?)
         ''', (task_id, title, description, assignee_id, project_id,
-              priority, estimated_hours, due_date))
+              priority, estimated_hours, due_date, prerequisites, 
+              acceptance_criteria, expected_outcome))
         
         # Log the creation
         cursor.execute('''
@@ -330,6 +333,37 @@ class AITeamDB:
         
         return cursor.rowcount > 0
     
+    def backlog_task(self, task_id: str, reason: str = "Waiting for requirements/resources") -> bool:
+        """Move task to backlog (waiting for requirements/resources)"""
+        cursor = self.conn.cursor()
+        
+        # Get task info before updating
+        cursor.execute('SELECT title, status FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        
+        old_status = row[1]
+        
+        cursor.execute('''
+            UPDATE tasks 
+            SET status = 'backlog', blocked_reason = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (reason, task_id))
+        
+        cursor.execute('''
+            INSERT INTO task_history (task_id, action, old_status, new_status, notes)
+            VALUES (?, 'backlogged', ?, 'backlog', ?)
+        ''', (task_id, old_status, reason))
+        
+        self.conn.commit()
+        
+        # Send Telegram notification
+        notification = f"📋 Task {task_id} moved to backlog: {reason}"
+        send_telegram_notification(notification)
+        
+        return cursor.rowcount > 0
+    
     def get_tasks(self, status: str = None, assignee: str = None) -> List[Dict]:
         """Get tasks with optional filters"""
         cursor = self.conn.cursor()
@@ -488,7 +522,7 @@ class AITeamDB:
         cursor = self.conn.cursor()
         today = datetime.now().strftime('%Y%m%d')
         cursor.execute("""
-            SELECT COUNT(*) FROM tasks 
+            SELECT COALESCE(MAX(CAST(SUBSTR(id, 12) AS INTEGER)), 0) FROM tasks 
             WHERE id LIKE ?
         """, (f'T-{today}-%',))
         return cursor.fetchone()[0] + 1
@@ -520,6 +554,66 @@ class AITeamDB:
         self.conn.commit()
         return cursor.rowcount
 
+    def update_task_requirements(self, task_id: str, 
+                                  prerequisites: str = None,
+                                  acceptance_criteria: str = None, 
+                                  expected_outcome: str = None) -> bool:
+        """Update task prerequisites, acceptance criteria, and expected outcome"""
+        cursor = self.conn.cursor()
+        
+        # Build dynamic update query based on provided fields
+        updates = []
+        params = []
+        
+        if prerequisites is not None:
+            updates.append("prerequisites = ?")
+            params.append(prerequisites)
+        if acceptance_criteria is not None:
+            updates.append("acceptance_criteria = ?")
+            params.append(acceptance_criteria)
+        if expected_outcome is not None:
+            updates.append("expected_outcome = ?")
+            params.append(expected_outcome)
+        
+        if not updates:
+            return False
+        
+        params.append(task_id)
+        query = f'''
+            UPDATE tasks 
+            SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        '''
+        
+        cursor.execute(query, params)
+        
+        # Log the update
+        cursor.execute('''
+            INSERT INTO task_history (task_id, action, notes)
+            VALUES (?, 'updated', 'Task requirements updated')
+        ''', (task_id,))
+        
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_task_requirements(self, task_id: str) -> dict:
+        """Get task prerequisites, acceptance criteria, and expected outcome"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT prerequisites, acceptance_criteria, expected_outcome
+            FROM tasks WHERE id = ?
+        ''', (task_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return {
+            'prerequisites': row[0],
+            'acceptance_criteria': row[1],
+            'expected_outcome': row[2]
+        }
+
 
 def main():
     parser = argparse.ArgumentParser(description='AI Team Database Manager')
@@ -537,6 +631,9 @@ def main():
     create.add_argument('--priority', choices=['critical', 'high', 'normal', 'low'], 
                        default='normal', help='Task priority')
     create.add_argument('--due', help='Due date (YYYY-MM-DD)')
+    create.add_argument('--prerequisites', help='Prerequisites as markdown checklist (e.g., "- [ ] API token\n- [ ] Design ready")')
+    create.add_argument('--acceptance', help='Acceptance criteria as markdown checklist')
+    create.add_argument('--expected-outcome', help='Clear description of expected outcome')
     
     assign = task_sub.add_parser('assign', help='Assign task')
     assign.add_argument('task_id', help='Task ID')
@@ -560,12 +657,25 @@ def main():
     block.add_argument('task_id', help='Task ID')
     block.add_argument('reason', help='Block reason')
     
+    backlog = task_sub.add_parser('backlog', help='Move task to backlog (waiting for requirements)')
+    backlog.add_argument('task_id', help='Task ID')
+    backlog.add_argument('--reason', default='Waiting for requirements/resources', help='Reason for backlog')
+    
     unblock = task_sub.add_parser('unblock', help='Unblock and resume task')
     unblock.add_argument('task_id', help='Task ID')
     unblock.add_argument('--agent', help='Agent ID resuming the task')
     
+    requirements = task_sub.add_parser('requirements', help='Update task requirements (prerequisites, acceptance criteria, goal)')
+    requirements.add_argument('task_id', help='Task ID')
+    requirements.add_argument('--prerequisites', help='Prerequisites as markdown checklist')
+    requirements.add_argument('--acceptance', help='Acceptance criteria as markdown checklist')
+    requirements.add_argument('--goal', help='Clear description of expected outcome')
+    
+    show_reqs = task_sub.add_parser('show-requirements', help='Show task requirements')
+    show_reqs.add_argument('task_id', help='Task ID')
+    
     list_tasks = task_sub.add_parser('list', help='List tasks')
-    list_tasks.add_argument('--status', choices=['todo', 'in_progress', 'done', 'blocked'],
+    list_tasks.add_argument('--status', choices=['backlog', 'todo', 'in_progress', 'review', 'done', 'blocked', 'cancelled'],
                            help='Filter by status')
     list_tasks.add_argument('--agent', help='Filter by agent')
     
@@ -607,9 +717,18 @@ def main():
                     assignee_id=args.assign,
                     project_id=args.project,
                     priority=args.priority,
-                    due_date=args.due
+                    due_date=args.due,
+                    prerequisites=args.prerequisites,
+                    acceptance_criteria=args.acceptance,
+                    goal=args.goal
                 )
                 print(f"✅ Task created: {task_id}")
+                if args.prerequisites:
+                    print(f"   Prerequisites: {len(args.prerequisites.split(chr(10)))} items")
+                if args.acceptance:
+                    print(f"   Acceptance Criteria: {len(args.acceptance.split(chr(10)))} items")
+                if args.goal:
+                    print(f"   Goal: {args.goal[:50]}{'...' if len(args.goal) > 50 else ''}")
                 
             elif args.task_action == 'assign':
                 if db.assign_task(args.task_id, args.agent_id):
@@ -635,17 +754,51 @@ def main():
                 if db.block_task(args.task_id, args.reason):
                     print(f"⚠️ Task {args.task_id} blocked: {args.reason}")
             
+            elif args.task_action == 'backlog':
+                if db.backlog_task(args.task_id, args.reason):
+                    print(f"📋 Task {args.task_id} moved to backlog: {args.reason}")
+            
             elif args.task_action == 'unblock':
                 if db.unblock_task(args.task_id, args.agent):
                     print(f"✅ Task {args.task_id} unblocked and resumed")
+            
+            elif args.task_action == 'requirements':
+                if db.update_task_requirements(
+                    args.task_id,
+                    prerequisites=args.prerequisites,
+                    acceptance_criteria=args.acceptance,
+                    goal=args.goal
+                ):
+                    print(f"✅ Task {args.task_id} requirements updated")
+                    if args.prerequisites:
+                        print(f"   Prerequisites: {len(args.prerequisites.split(chr(10)))} items")
+                    if args.acceptance:
+                        print(f"   Acceptance Criteria: {len(args.acceptance.split(chr(10)))} items")
+                    if args.goal:
+                        print(f"   Goal: {args.goal[:50]}{'...' if len(args.goal) > 50 else ''}")
+            
+            elif args.task_action == 'show-requirements':
+                reqs = db.get_task_requirements(args.task_id)
+                if reqs:
+                    print(f"\n📋 Task {args.task_id} Requirements:\n")
+                    if reqs['goal']:
+                        print(f"🎯 Goal:\n{reqs['goal']}\n")
+                    if reqs['prerequisites']:
+                        print(f"✅ Prerequisites:\n{reqs['prerequisites']}\n")
+                    if reqs['acceptance_criteria']:
+                        print(f"📌 Acceptance Criteria:\n{reqs['acceptance_criteria']}\n")
+                    if not any([reqs['goal'], reqs['prerequisites'], reqs['acceptance_criteria']]):
+                        print("   No requirements defined yet.")
+                else:
+                    print(f"⚠️ Task {args.task_id} not found")
                     
             elif args.task_action == 'list':
                 tasks = db.get_tasks(status=args.status, assignee=args.agent)
                 print(f"\n📋 Tasks ({len(tasks)} total):\n")
                 for t in tasks:
                     status_emoji = {
-                        'todo': '⬜', 'in_progress': '🔄',
-                        'done': '✅', 'blocked': '🚧'
+                        'backlog': '📋', 'todo': '⬜', 'in_progress': '🔄',
+                        'review': '👀', 'done': '✅', 'blocked': '🚧', 'cancelled': '🚫'
                     }.get(t['status'], '⬜')
                     print(f"{status_emoji} {t['id']} | {t['title'][:40]}...")
                     print(f"   Status: {t['status']} | Assignee: {t['assignee_name'] or 'Unassigned'}")

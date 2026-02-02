@@ -74,6 +74,7 @@ $activities = fetchAll($db, 'SELECT th.*, t.title as task_title, a.name as agent
 
 // Group tasks by status
 $kanbanColumns = [
+    'backlog' => ['label' => 'BACKLOG', 'tasks' => []],
     'todo' => ['label' => 'TODO', 'tasks' => []],
     'in_progress' => ['label' => 'IN PROGRESS', 'tasks' => []],
     'review' => ['label' => 'REVIEW', 'tasks' => []],
@@ -430,7 +431,7 @@ $statConfig = [
         /* Kanban Board Styles */
         .kanban-board {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 15px;
             overflow-x: auto;
             min-height: 500px;
@@ -464,6 +465,7 @@ $statConfig = [
             font-size: 0.85rem;
             font-weight: 600;
         }
+        .kanban-column.backlog .kanban-column-title { color: #9f7aea; }
         .kanban-column.todo .kanban-column-title { color: #a0aec0; }
         .kanban-column.in_progress .kanban-column-title { color: #4299e1; }
         .kanban-column.review .kanban-column-title { color: #ed8936; }
@@ -723,6 +725,11 @@ $statConfig = [
             width: 90%;
             border: 1px solid rgba(0, 217, 255, 0.3);
         }
+        .modal-content.modal-task-details {
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
         .modal-title {
             color: #00d9ff;
             margin-bottom: 20px;
@@ -756,13 +763,68 @@ $statConfig = [
             color: #888;
             grid-column: span 2;
         }
+        
+        /* Task Requirements Styles */
+        .task-goal {
+            background: rgba(0, 217, 255, 0.1);
+            border-left: 4px solid #00d9ff;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .task-goal-title {
+            color: #00d9ff;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .task-goal-content {
+            color: #eaeaea;
+            line-height: 1.6;
+        }
+        .task-checklist {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 15px 0;
+        }
+        .task-checklist-title {
+            color: #a0aec0;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .task-checklist-content {
+            color: #eaeaea;
+            white-space: pre-wrap;
+            font-family: inherit;
+            line-height: 1.8;
+        }
+        .task-checklist-content input[type="checkbox"] {
+            margin-right: 8px;
+            accent-color: #00d9ff;
+        }
+        .task-checklist-content ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .task-checklist-content li {
+            margin: 5px 0;
+        }
+        .task-section-divider {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 20px 0;
+        }
 
-        @media (max-width: 1400px) {
+        @media (max-width: 1600px) {
             .kanban-board {
                 grid-template-columns: repeat(3, 1fr);
             }
         }
-        @media (max-width: 900px) {
+        @media (max-width: 1000px) {
             .kanban-board {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -988,7 +1050,7 @@ $statConfig = [
 
     <!-- Task Detail Modal (Read Only) -->
     <div class="modal-overlay" id="taskModal" onclick="closeModal(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-content modal-task-details" onclick="event.stopPropagation()">
             <h3 class="modal-title" id="modalTitle">Task Details</h3>
             <div id="modalBody" style="color: #eaeaea; line-height: 1.6;">
                 <!-- Content loaded via JavaScript -->
@@ -1002,6 +1064,17 @@ $statConfig = [
     <script>
         // Task data for modal
         const taskData = <?= json_encode($tasks) ?>;
+        
+        // Render markdown checklist to HTML
+        function renderChecklist(text) {
+            if (!text) return '';
+            // Convert markdown checkboxes to HTML
+            let html = text
+                .replace(/- \[ \] (.*)/g, '<li><input type="checkbox" disabled> $1</li>')
+                .replace(/- \[x\] (.*)/gi, '<li><input type="checkbox" checked disabled> $1</li>')
+                .replace(/- (.*)/g, '<li>$1</li>');
+            return `<ul style="list-style: none; padding-left: 0; margin: 0;">${html}</ul>`;
+        }
         
         // Open modal with task details
         function openTaskModal(taskId) {
@@ -1028,7 +1101,8 @@ $statConfig = [
                 }) + ' (GMT+7)';
             };
             
-            body.innerHTML = `
+            // Build modal content
+            let content = `
                 <p><strong>Status:</strong> <span style="text-transform: uppercase; color: ${getStatusColor(task.status)}">${task.status}</span></p>
                 <p><strong>Priority:</strong> ${task.priority}</p>
                 <p><strong>Assignee:</strong> ${task.assignee_name || 'Unassigned'}</p>
@@ -1038,9 +1112,49 @@ $statConfig = [
                 ${task.completed_at ? `<p><strong>✅ Completed:</strong> ${formatDate(task.completed_at)}</p>` : ''}
                 ${task.due_date ? `<p><strong>⏰ Due Date:</strong> ${task.due_date}</p>` : ''}
                 ${task.blocked_reason ? `<p><strong>🚫 Blocked Reason:</strong> <span style="color: #f56565">${task.blocked_reason}</span></p>` : ''}
-                ${task.description ? `<p><strong>📝 Description:</strong></p><p style="margin-left: 10px; color: #a0aec0;">${task.description}</p>` : ''}
             `;
             
+            // Add Goal section
+            if (task.goal) {
+                content += `
+                    <hr class="task-section-divider">
+                    <div class="task-goal">
+                        <div class="task-goal-title">🎯 Goal</div>
+                        <div class="task-goal-content">${task.goal}</div>
+                    </div>
+                `;
+            }
+            
+            // Add Prerequisites section
+            if (task.prerequisites) {
+                content += `
+                    <div class="task-checklist">
+                        <div class="task-checklist-title">✅ Prerequisites (Before Starting)</div>
+                        <div class="task-checklist-content">${renderChecklist(task.prerequisites)}</div>
+                    </div>
+                `;
+            }
+            
+            // Add Acceptance Criteria section
+            if (task.acceptance_criteria) {
+                content += `
+                    <div class="task-checklist">
+                        <div class="task-checklist-title">📌 Acceptance Criteria (Definition of Done)</div>
+                        <div class="task-checklist-content">${renderChecklist(task.acceptance_criteria)}</div>
+                    </div>
+                `;
+            }
+            
+            // Add Description section
+            if (task.description) {
+                content += `
+                    <hr class="task-section-divider">
+                    <p><strong>📝 Description:</strong></p>
+                    <p style="margin-left: 10px; color: #a0aec0; white-space: pre-wrap;">${task.description}</p>
+                `;
+            }
+            
+            body.innerHTML = content;
             modal.classList.add('active');
         }
         
