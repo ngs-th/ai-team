@@ -1,6 +1,6 @@
 # 🤖 AI Team System
 
-**Version:** 3.1.0  
+**Version:** 3.2.0  
 **Created:** 2026-02-01  
 **Updated:** 2026-02-02  
 **Status:** Active  
@@ -452,6 +452,60 @@ python3 team_db.py report --daily
 
 ---
 
+## 5.7 Autonomous Fix Protocol (NEW)
+
+**Rule:** After agent reports task completion, Orchestrator **MUST** autonomously fix issues without asking user permission.
+
+### When Agent Reports "Complete"
+
+```
+Agent: "✅ Task complete. Delivered: [files]"
+    │
+    ▼
+Orchestrator (Auto-check)
+    │
+    ├── ตรวจสอบผลงาน (read files)
+    │
+    ├── พบปัญหา? ──▶ แก้ไขทันที (ไม่ต้องถาม)
+    │
+    └── ไม่มีปัญหา ──▶ อัพเดต status = done
+```
+
+### Auto-Fix Decision Tree
+
+| พบปัญหา | การกระทำ | ไม่ต้องถามเมื่อ |
+|---------|----------|----------------|
+| Path ผิด | ย้ายไฟล์ให้ถูกต้อง | ปลายทางชัดเจน |
+| ชื่อไฟล์ผิด | Rename ตาม convention | Pattern ชัดเจน |
+| ขาด config | เพิ่ม config ตาม template | มี template มาตรฐาน |
+| Error ง่ายๆ | Fix ตาม error message | Fix ชัดเจนและปลอดภัย |
+| Doc ไม่ครบ | เติม doc ตามที่มีอยู่ | Pattern ชัดเจน |
+
+### When to ASK (ข้อยกเว้น)
+
+ถามผู้ใช้เมื่อ:
+- ไม่แน่ใจว่า **ความต้องการ** คืออะไร
+- มี **หลายทางเลือก** ที่สมเหตุสมผลเท่ากัน
+- ต้อง **เปลี่ยน scope** ของงาน
+- มี **ความเสี่ยง** สูง (ลบข้อมูล, เปลี่ยน architecture)
+
+### Example
+
+**Before (Ask):**
+```
+Agent: "เสร็จแล้ว แต่ไฟล์อยู่ผิดที่"
+User: "ย้ายไปให้ถูกสิ"
+Agent: "ย้ายแล้ว"
+```
+
+**After (Auto-fix):**
+```
+Agent: "เสร็จแล้ว แต่ไฟล์อยู่ผิดที่"
+Orchestrator: "[Auto-fix] ย้ายไฟล์ไป [correct-path] แล้ว"
+```
+
+---
+
 ## 6. Quality Gates
 
 ### 6.1 Gate Definitions
@@ -621,6 +675,7 @@ QA Quinn: Done - ผ่านการทดสอบทั้งหมด
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **3.2.0** | 2026-02-02 | Added Autonomous Fix Protocol: Orchestrator auto-fixes issues after agent reports without asking permission |
 | **3.1.0** | 2026-02-02 | Added Cron Monitoring System section (active jobs, monitoring rules, alerts, reports) |
 | **3.0.0** | 2026-02-02 | **Major:** Renamed to AI-TEAM-SYSTEM.md, added comprehensive Database System section (schema, data flow, agent-db contracts) |
 | 2.0.0 | 2026-02-02 | Added Decision Matrix, Timeouts, Quality Gates, Fallback Plans, Resource Guidelines |
