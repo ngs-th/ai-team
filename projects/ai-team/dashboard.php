@@ -11,37 +11,6 @@ $dbPath = __DIR__ . '/team.db';
 $db = null;
 $error = null;
 
-// Handle task status update
-$updateMessage = null;
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_status') {
-    try {
-        $db = new SQLite3($dbPath, SQLITE3_OPEN_READWRITE);
-        $db->enableExceptions(true);
-        
-        $taskId = intval($_POST['task_id'] ?? 0);
-        $newStatus = $_POST['new_status'] ?? '';
-        $validStatuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
-        
-        if ($taskId > 0 && in_array($newStatus, $validStatuses)) {
-            $stmt = $db->prepare('UPDATE tasks SET status = :status, updated_at = datetime("now") WHERE id = :id');
-            $stmt->bindValue(':status', $newStatus);
-            $stmt->bindValue(':id', $taskId);
-            $stmt->execute();
-            
-            // Add to task history
-            $historyStmt = $db->prepare('INSERT INTO task_history (task_id, action, new_status, timestamp) VALUES (:task_id, "status_change", :new_status, datetime("now"))');
-            $historyStmt->bindValue(':task_id', $taskId);
-            $historyStmt->bindValue(':new_status', $newStatus);
-            $historyStmt->execute();
-            
-            $updateMessage = "Task #$taskId moved to " . strtoupper(str_replace('_', ' ', $newStatus));
-        }
-        $db->close();
-    } catch (Exception $e) {
-        $error = $e->getMessage();
-    }
-}
-
 try {
     if (!file_exists($dbPath)) {
         throw new Exception("Database not found: $dbPath");
@@ -726,12 +695,6 @@ $statConfig = [
         <h1>🤖 AI Team Dashboard</h1>
         <p class="last-updated">Last updated: <?= htmlspecialchars($lastUpdated) ?> (auto-refreshes every 60s)</p>
 
-        <?php if ($updateMessage): ?>
-        <div class="success-message">
-            ✅ <?= htmlspecialchars($updateMessage) ?>
-        </div>
-        <?php endif; ?>
-
         <?php if ($error): ?>
         <div class="error">
             <strong>Error:</strong> <?= htmlspecialchars($error) ?>
@@ -792,7 +755,7 @@ $statConfig = [
                                 $assigneeInitials = substr($assigneeInitials, 0, 2);
                             }
                         ?>
-                        <div class="kanban-card" draggable="true" data-task-id="<?= $task['id'] ?>" data-current-status="<?= $status ?>">
+                        <div class="kanban-card">
                             <div class="kanban-card-header">
                                 <span class="kanban-card-title"><?= htmlspecialchars($task['title'] ?? 'Untitled') ?></span>
                                 <span class="kanban-card-id">#<?= $task['id'] ?></span>
@@ -831,50 +794,11 @@ $statConfig = [
                                 🚫 <?= htmlspecialchars($task['blocked_reason']) ?>
                             </div>
                             <?php endif; ?>
-
-                            <div class="kanban-card-actions">
-                                <?php foreach (['todo', 'in_progress', 'review', 'done', 'blocked'] as $btnStatus): ?>
-                                    <?php if ($btnStatus !== $status): ?>
-                                    <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="action" value="update_status">
-                                        <input type="hidden" name="task_id" value="<?= $task['id'] ?>">
-                                        <input type="hidden" name="new_status" value="<?= $btnStatus ?>">
-                                        <button type="submit" class="status-btn <?= $btnStatus ?>">
-                                            → <?= str_replace('_', ' ', strtoupper($btnStatus)) ?>
-                                        </button>
-                                    </form>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            </div>
                         </div>
                         <?php endforeach; ?>
                     </div>
-                    <div class="drop-zone" id="drop-<?= $status ?>">Drop task here</div>
                 </div>
                 <?php endforeach; ?>
-            </div>
-        </div>
-
-        <!-- Status Change Modal -->
-        <div class="modal-overlay" id="statusModal">
-            <div class="modal-content">
-                <h3 class="modal-title">Change Task Status</h3>
-                <p style="color: #888; margin-bottom: 20px; font-size: 0.9rem;">
-                    Task: <span id="modalTaskTitle" style="color: #fff;"></span>
-                </p>
-                <form method="POST" id="statusForm">
-                    <input type="hidden" name="action" value="update_status">
-                    <input type="hidden" name="task_id" id="modalTaskId">
-                    <input type="hidden" name="new_status" id="modalNewStatus">
-                    <div class="modal-actions">
-                        <button type="submit" class="modal-btn todo" data-status="todo">TODO</button>
-                        <button type="submit" class="modal-btn in_progress" data-status="in_progress">IN PROGRESS</button>
-                        <button type="submit" class="modal-btn review" data-status="review">REVIEW</button>
-                        <button type="submit" class="modal-btn done" data-status="done">DONE</button>
-                        <button type="submit" class="modal-btn blocked" data-status="blocked">BLOCKED</button>
-                        <button type="button" class="modal-btn cancel" onclick="closeModal()">Cancel</button>
-                    </div>
-                </form>
             </div>
         </div>
 
@@ -955,114 +879,81 @@ $statConfig = [
         <?php endif; // end if not error ?>
     </div>
 
+    <!-- Task Detail Modal (Read Only) -->
+    <div class="modal-overlay" id="taskModal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h3 class="modal-title" id="modalTitle">Task Details</h3>
+            <div id="modalBody" style="color: #eaeaea; line-height: 1.6;">
+                <!-- Content loaded via JavaScript -->
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="closeModal()" style="padding: 8px 16px; background: #4a5568; color: white; border: none; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Drag and Drop functionality
-        let draggedCard = null;
-        let draggedTaskId = null;
-
-        document.querySelectorAll('.kanban-card').forEach(card => {
-            card.addEventListener('dragstart', function(e) {
-                draggedCard = this;
-                draggedTaskId = this.dataset.taskId;
-                this.classList.add('dragging');
-                e.dataTransfer.effectAllowed = 'move';
-            });
-
-            card.addEventListener('dragend', function() {
-                this.classList.remove('dragging');
-                draggedCard = null;
-                document.querySelectorAll('.drop-zone').forEach(zone => zone.classList.remove('active'));
-            });
-
-            // Click to open modal
-            card.addEventListener('click', function(e) {
-                if (e.target.tagName !== 'BUTTON' && e.target.closest('button') === null) {
-                    const taskId = this.dataset.taskId;
-                    const taskTitle = this.querySelector('.kanban-card-title').textContent;
-                    openModal(taskId, taskTitle);
-                }
-            });
-        });
-
-        document.querySelectorAll('.kanban-column').forEach(column => {
-            column.addEventListener('dragover', function(e) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                const dropZone = this.querySelector('.drop-zone');
-                if (dropZone) dropZone.classList.add('active');
-            });
-
-            column.addEventListener('dragleave', function(e) {
-                const dropZone = this.querySelector('.drop-zone');
-                if (dropZone) dropZone.classList.remove('active');
-            });
-
-            column.addEventListener('drop', function(e) {
-                e.preventDefault();
-                const newStatus = this.dataset.status;
-                const dropZone = this.querySelector('.drop-zone');
-                if (dropZone) dropZone.classList.remove('active');
-                
-                if (draggedCard && draggedTaskId) {
-                    const currentStatus = draggedCard.dataset.currentStatus;
-                    if (currentStatus !== newStatus) {
-                        // Show confirmation modal for drag-drop
-                        const taskTitle = draggedCard.querySelector('.kanban-card-title').textContent;
-                        openModal(draggedTaskId, taskTitle, newStatus);
-                    }
-                }
-            });
-        });
-
-        // Modal functionality
-        const modal = document.getElementById('statusModal');
-        const modalTaskId = document.getElementById('modalTaskId');
-        const modalTaskTitle = document.getElementById('modalTaskTitle');
-        const modalNewStatus = document.getElementById('modalNewStatus');
-
-        function openModal(taskId, taskTitle, preselectedStatus = null) {
-            modalTaskId.value = taskId;
-            modalTaskTitle.textContent = taskTitle;
-            modalNewStatus.value = preselectedStatus || '';
+        // Task data for modal
+        const taskData = <?= json_encode($tasks) ?>;
+        
+        // Open modal with task details
+        function openTaskModal(taskId) {
+            const task = taskData.find(t => t.id === taskId);
+            if (!task) return;
             
-            // Highlight preselected status button
-            document.querySelectorAll('.modal-btn').forEach(btn => {
-                btn.style.opacity = '1';
-                if (preselectedStatus && btn.dataset.status === preselectedStatus) {
-                    btn.style.boxShadow = '0 0 15px rgba(255,255,255,0.5)';
-                } else {
-                    btn.style.boxShadow = 'none';
-                }
-            });
+            const modal = document.getElementById('taskModal');
+            const title = document.getElementById('modalTitle');
+            const body = document.getElementById('modalBody');
+            
+            title.textContent = `#${task.id}: ${task.title}`;
+            body.innerHTML = `
+                <p><strong>Status:</strong> <span style="text-transform: uppercase; color: ${getStatusColor(task.status)}">${task.status}</span></p>
+                <p><strong>Priority:</strong> ${task.priority}</p>
+                <p><strong>Assignee:</strong> ${task.assignee_name || 'Unassigned'}</p>
+                <p><strong>Project:</strong> ${task.project_name || 'N/A'}</p>
+                ${task.due_date ? `<p><strong>Due Date:</strong> ${task.due_date}</p>` : ''}
+                ${task.started_at ? `<p><strong>Started:</strong> ${task.started_at}</p>` : ''}
+                ${task.completed_at ? `<p><strong>Completed:</strong> ${task.completed_at}</p>` : ''}
+                ${task.blocked_reason ? `<p><strong>Blocked Reason:</strong> <span style="color: #f56565">${task.blocked_reason}</span></p>` : ''}
+                ${task.description ? `<p><strong>Description:</strong></p><p style="margin-left: 10px; color: #a0aec0;">${task.description}</p>` : ''}
+            `;
             
             modal.classList.add('active');
         }
-
-        function closeModal() {
-            modal.classList.remove('active');
+        
+        function getStatusColor(status) {
+            const colors = {
+                'todo': '#718096',
+                'in_progress': '#4299e1',
+                'review': '#ed8936',
+                'done': '#48bb78',
+                'blocked': '#f56565'
+            };
+            return colors[status] || '#718096';
         }
-
-        // Handle modal button clicks
-        document.querySelectorAll('.modal-btn[data-status]').forEach(btn => {
-            btn.addEventListener('click', function() {
-                modalNewStatus.value = this.dataset.status;
-                document.getElementById('statusForm').submit();
+        
+        function closeModal(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('taskModal').classList.remove('active');
+        }
+        
+        // Add click handlers to cards
+        document.querySelectorAll('.kanban-card').forEach(card => {
+            card.addEventListener('click', function() {
+                const taskId = this.querySelector('.kanban-card-id').textContent.replace('#', '');
+                openTaskModal(taskId);
             });
+            card.style.cursor = 'pointer';
         });
-
-        // Close modal on overlay click
-        modal.addEventListener('click', function(e) {
-            if (e.target === modal) {
-                closeModal();
-            }
-        });
-
+        
         // Keyboard shortcut - ESC to close modal
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && modal.classList.contains('active')) {
+            if (e.key === 'Escape') {
                 closeModal();
             }
         });
+        
+        console.log('AI Team Dashboard - Read Only Mode with Task Details');
     </script>
 </body>
 </html>
