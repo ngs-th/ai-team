@@ -1,6 +1,6 @@
 # 🤖 AI Team System
 
-**Version:** 3.4.0  
+**Version:** 3.4.1  
 **Created:** 2026-02-01  
 **Updated:** 2026-02-02  
 **Status:** Active  
@@ -493,6 +493,39 @@ Agent: "✅ Task complete. Delivered: [files]"
 
 **คำสั่งตัวเอง:** "Fix it again. And again. Until clean."
 
+### ⚠️ MANDATORY: Test Before Marking Complete
+
+**Agents MUST test before reporting "complete":**
+
+```
+Before: "✅ Task complete"
+        ↓
+   1. Syntax check (php -l, etc.)
+   2. Database query check (if applicable)
+   3. Basic functionality test
+   4. Check for obvious errors
+        ↓
+After: Confirm working → "✅ Task complete"
+```
+
+**Testing Checklist:**
+- [ ] **Syntax Validation**: `php -l file.php`, `python -m py_compile file.py`
+- [ ] **Database Check**: ตรวจสอบ columns ที่ใช้มีจริง
+- [ ] **Query Test**: รัน SQL query ที่เขียน
+- [ ] **File Existence**: ตรวจสอบไฟล์ที่อ้างอิงมีจริง
+- [ ] **Basic Run**: ถ้าเป็น web → เปิดดู; ถ้าเป็น script → รันทดสอบ
+
+**Example Error (ที่ต้องจับได้):**
+```
+❌ Bad:  Query uses a.avatar_url (column doesn't exist)
+✅ Good: Test query first → Find error → Fix → Then report complete
+```
+
+**If test fails:**
+1. Fix the issue (don't report complete yet)
+2. Test again
+3. Only report complete when tests pass
+
 ### Auto-Fix Categories (แก้ได้ทันที)
 
 | หมวด | ตัวอย่าง | แก้ไข |
@@ -788,6 +821,7 @@ Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **3.4.1** | 2026-02-02 | Added MANDATORY testing requirement: Agents must test (syntax, database, basic functionality) before marking tasks complete |
 | **3.4.0** | 2026-02-02 | Added Kanban Dashboard, Duration Tracking, Telegram Notifications, Fix Loop Limit (10), Blocked Status with reason |
 | **3.3.0** | 2026-02-02 | Enhanced Autonomous Fix Protocol: Fix ALL issues iteratively until clean (Fix Until Clean principle) |
 | **3.2.0** | 2026-02-02 | Added Autonomous Fix Protocol: Orchestrator auto-fixes issues after agent reports without asking permission |
