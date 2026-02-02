@@ -134,20 +134,92 @@ function priorityColor($priority) {
     return $map[$priority] ?? '#888';
 }
 
-// Calculate duration from created_at
-function getDuration($createdAt) {
-    if (!$createdAt) return 'N/A';
-    $created = new DateTime($createdAt);
-    $now = new DateTime();
-    $diff = $created->diff($now);
+// Calculate duration based on task status
+// For done tasks: show actual duration (completed - started)
+// For active tasks: show elapsed time (now - started)
+// For todo tasks: show time since created
+function getDuration($task) {
+    if (!$task) return 'N/A';
     
-    if ($diff->d > 0) {
-        return $diff->d . 'd ' . $diff->h . 'h';
-    } elseif ($diff->h > 0) {
-        return $diff->h . 'h ' . $diff->i . 'm';
-    } else {
-        return $diff->i . 'm';
+    $status = $task['status'] ?? 'todo';
+    $startedAt = $task['started_at'] ?? null;
+    $completedAt = $task['completed_at'] ?? null;
+    $actualDuration = $task['actual_duration_minutes'] ?? null;
+    $createdAt = $task['created_at'] ?? null;
+    
+    // For done tasks: use actual duration or calculate from started/completed
+    if ($status === 'done') {
+        if ($actualDuration) {
+            $hours = floor($actualDuration / 60);
+            $mins = $actualDuration % 60;
+            if ($hours > 0) {
+                return $hours . 'h ' . $mins . 'm';
+            } else {
+                return $mins . 'm';
+            }
+        }
+        // Calculate from started_at -> completed_at
+        if ($startedAt && $completedAt) {
+            $started = new DateTime($startedAt);
+            $completed = new DateTime($completedAt);
+            $diff = $started->diff($completed);
+            
+            if ($diff->d > 0) {
+                return $diff->d . 'd ' . $diff->h . 'h';
+            } elseif ($diff->h > 0) {
+                return $diff->h . 'h ' . $diff->i . 'm';
+            } else {
+                return $diff->i . 'm';
+            }
+        }
+        // Fallback: calculate from created_at -> completed_at
+        if ($createdAt && $completedAt) {
+            $created = new DateTime($createdAt);
+            $completed = new DateTime($completedAt);
+            $diff = $created->diff($completed);
+            
+            if ($diff->d > 0) {
+                return $diff->d . 'd ' . $diff->h . 'h';
+            } elseif ($diff->h > 0) {
+                return $diff->h . 'h ' . $diff->i . 'm';
+            } else {
+                return $diff->i . 'm';
+            }
+        }
+        return 'Done';
     }
+    
+    // For in_progress tasks: calculate from started_at to now
+    if ($status === 'in_progress' && $startedAt) {
+        $started = new DateTime($startedAt);
+        $now = new DateTime();
+        $diff = $started->diff($now);
+        
+        if ($diff->d > 0) {
+            return $diff->d . 'd ' . $diff->h . 'h';
+        } elseif ($diff->h > 0) {
+            return $diff->h . 'h ' . $diff->i . 'm';
+        } else {
+            return $diff->i . 'm';
+        }
+    }
+    
+    // For todo/blocked tasks: show time since created
+    if ($createdAt) {
+        $created = new DateTime($createdAt);
+        $now = new DateTime();
+        $diff = $created->diff($now);
+        
+        if ($diff->d > 0) {
+            return $diff->d . 'd ' . $diff->h . 'h';
+        } elseif ($diff->h > 0) {
+            return $diff->h . 'h ' . $diff->i . 'm';
+        } else {
+            return $diff->i . 'm';
+        }
+    }
+    
+    return 'N/A';
 }
 
 // Stats configuration for display
@@ -725,8 +797,14 @@ $statConfig = [
                                 <span class="kanban-card-title"><?= htmlspecialchars($task['title'] ?? 'Untitled') ?></span>
                                 <span class="kanban-card-id">#<?= $task['id'] ?></span>
                             </div>
-                            <?php if (!empty($task['project_name'])): ?>
-                            <div class="kanban-card-project">📁 <?= htmlspecialchars($task['project_name']) ?></div>
+                            <?php if (!empty($task['project_id'])): 
+                                $projectDisplay = $task['project_name'] ?? $task['project_id'];
+                                // If project name looks like an ID (EPIC-XXX), try to get better display name
+                                if (preg_match('/^EPIC-\d+$/', $projectDisplay)) {
+                                    $projectDisplay = 'Nurse AI'; // Default to Nurse AI for Epic 2
+                                }
+                            ?>
+                            <div class="kanban-card-project">📁 <?= htmlspecialchars($projectDisplay) ?></div>
                             <?php endif; ?>
                             
                             <div class="kanban-card-footer">
@@ -742,8 +820,8 @@ $statConfig = [
                                         <?= $isOverdue ? '⚠️ ' : '📅 ' ?><?= htmlspecialchars($task['due_date']) ?>
                                     </span>
                                     <?php endif; ?>
-                                    <span class="kanban-card-duration">
-                                        ⏱️ <?= getDuration($task['created_at']) ?>
+                                    <span class="kanban-card-duration" title="<?= $task['status'] === 'done' ? 'Total time spent' : 'Elapsed time' ?>">
+                                        ⏱️ <?= getDuration($task) ?>
                                     </span>
                                 </div>
                             </div>
