@@ -1,6 +1,6 @@
 # 🤖 AI Team System
 
-**Version:** 3.4.2  
+**Version:** 3.4.3  
 **Created:** 2026-02-01  
 **Updated:** 2026-02-02  
 **Status:** Active  
@@ -605,16 +605,27 @@ Task T-001 (blocked) ──> Agent A หลุด (idle)
        Agent.status = 'idle'     (คนว่าง ไปทำงานอื่น)
 ```
 
-### Telegram Notifications
+### Telegram Notifications (MANDATORY)
 
-**ส่งข้อความไป Telegram เมื่อ:**
-- ✅ Task เริ่มทำ
-- ✅ Task เสร็จสมบูรณ์
+**ส่งข้อความไป Telegram เมื่อมีการเปลี่ยนแปลงใดๆ:**
+
+#### EVERY Status Change (ทุกการเปลี่ยน status)
+| จาก | เป็น | ข้อความ |
+|------|------|----------|
+| todo | in_progress | 🚀 Task #XXX เริ่มทำแล้ว (Agent) |
+| in_progress | review | 👀 Task #XXX ส่งรีวิว |
+| review | done | ✅ Task #XXX เสร็จสมบูรณ์ |
+| any | blocked | 🚫 Task #XXX ถูก block (เหตุผล) |
+| blocked | in_progress | 🔄 Task #XXX กลับมาทำต่อ |
+
+#### Other Events
+- ✅ Task เริ่มทำ (spawned)
+- ✅ Task เสร็จสมบูรณ์ (done)
 - ⚠️ Task ถูก block
 - ⚠️ Fix loop ครบ 5, 8, 10 รอบ
 - 📊 สรุปรายวัน
-- **มีความเสี่ยงสูง** (ลบข้อมูล, เปลี่ยน DB schema)
-- มี **ความเสี่ยง** สูง (ลบข้อมูล, เปลี่ยน architecture)
+
+**Rule:** ทุกการเปลี่ยน status ต้องแจ้ง Telegram ทันที ไม่มีข้อยกเว้น
 
 ### Example
 
@@ -863,6 +874,7 @@ Dashboard แสดงผลแบบ **Kanban Board** แทนตาราง:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **3.4.3** | 2026-02-02 | Mandatory Telegram notifications for EVERY task status change (todo→in_progress, in_progress→review, review→done, etc.) |
 | **3.4.2** | 2026-02-02 | Clarified Blocked Status: Block the TASK (not the AGENT) so agent can be reassigned to other work immediately |
 | **3.4.1** | 2026-02-02 | Added MANDATORY testing requirement: Agents must test (syntax, database, basic functionality) before marking tasks complete |
 | **3.4.0** | 2026-02-02 | Added Kanban Dashboard, Duration Tracking, Telegram Notifications, Fix Loop Limit (10), Blocked Status with reason |
